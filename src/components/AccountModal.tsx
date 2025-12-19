@@ -390,19 +390,12 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess }: Account
                   >
                     <div className="flex items-center gap-1 flex-1 min-w-0">
                       {selectedTags.length > 0 ? (
-                        <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
-                          <div className="flex gap-1 overflow-hidden flex-1">
-                            {selectedTags.map((tag, index) => (
-                              <Badge key={tag} variant="secondary" className="text-xs shrink-0 max-w-[120px] truncate">
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                          {selectedTags.length > 2 && (
-                            <Badge variant="outline" className="text-xs shrink-0">
-                              +{selectedTags.length - 2} more
+                        <div className="flex gap-1 flex-wrap flex-1">
+                          {selectedTags.map((tag) => (
+                            <Badge key={tag} variant="secondary" className="text-xs">
+                              {tag}
                             </Badge>
-                          )}
+                          ))}
                         </div>
                       ) : (
                         <span className="text-muted-foreground">Select tags...</span>
