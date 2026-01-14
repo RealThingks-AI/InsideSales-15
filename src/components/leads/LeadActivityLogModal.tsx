@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Phone, Mail, Calendar, FileText, CheckSquare } from "lucide-react";
 
@@ -48,17 +49,13 @@ export const LeadActivityLogModal = ({ open, onOpenChange, leadId, onSuccess }: 
 
     setLoading(true);
     try {
-      // Create a task instead of lead_action_items
       const { error } = await supabase
-        .from('tasks')
+        .from('lead_action_items')
         .insert({
           lead_id: leadId,
-          title: `[${formData.activity_type.toUpperCase()}] ${formData.next_action.trim()}`,
-          description: formData.notes.trim() || null,
-          status: 'open',
-          priority: 'medium',
-          created_by: user?.id,
-          module_type: 'leads'
+          next_action: `[${formData.activity_type.toUpperCase()}] ${formData.next_action.trim()}`,
+          status: 'Open',
+          created_by: user?.id
         });
 
       if (error) throw error;
@@ -90,7 +87,7 @@ export const LeadActivityLogModal = ({ open, onOpenChange, leadId, onSuccess }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Log Activity</DialogTitle>
         </DialogHeader>

@@ -41,8 +41,8 @@ const UserManagement = () => {
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortField, setSortField] = useState<string>('name');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [sortField, setSortField] = useState<string>('created_at');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const {
     toast
   } = useToast();
@@ -58,11 +58,13 @@ const UserManagement = () => {
   const fetchUsers = useCallback(async () => {
     try {
       console.log('Fetching users with role validation...');
-
+      
       // Fetch users and roles in parallel for faster loading
-      const [usersResponse, rolesResponse] = await Promise.all([supabase.functions.invoke('user-admin', {
-        method: 'GET'
-      }), supabase.from('user_roles').select('user_id, role')]);
+      const [usersResponse, rolesResponse] = await Promise.all([
+        supabase.functions.invoke('user-admin', { method: 'GET' }),
+        supabase.from('user_roles').select('user_id, role')
+      ]);
+      
       if (usersResponse.error) {
         console.error('Error fetching users:', usersResponse.error);
         throw usersResponse.error;
@@ -81,6 +83,7 @@ const UserManagement = () => {
         ...user,
         role: userRoles[user.id] || 'user'
       })) || [];
+      
       console.log('Users fetched successfully:', usersWithRoles.length);
       setUsers(usersWithRoles);
     } catch (error: any) {
@@ -231,9 +234,9 @@ const UserManagement = () => {
       case 'admin':
         return 'Admin';
       case 'manager':
-        return 'Manager';
+        return 'Management';
       default:
-        return 'User';
+        return 'Employee';
     }
   }, []);
   const handleSort = (field: string) => {
@@ -387,7 +390,15 @@ const UserManagement = () => {
 
           {/* User Directory Card */}
           <Card>
-            
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                
+                <div className="relative w-64">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input placeholder="Search users..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-9" inputSize="control" />
+                </div>
+              </div>
+            </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>

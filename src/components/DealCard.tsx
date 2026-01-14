@@ -15,7 +15,6 @@ interface DealCardProps {
   selectionMode?: boolean;
   onDelete?: (dealId: string) => void;
   onStageChange?: (dealId: string, newStage: any) => void;
-  displayNames?: Record<string, string>;
 }
 
 export const DealCard = ({ 
@@ -25,8 +24,7 @@ export const DealCard = ({
   isSelected, 
   selectionMode, 
   onDelete, 
-  onStageChange,
-  displayNames 
+  onStageChange 
 }: DealCardProps) => {
   const formatCurrency = (amount: number, currency: string = 'EUR') => {
     const symbols = { USD: '$', EUR: '€', INR: '₹' };
@@ -109,7 +107,7 @@ export const DealCard = ({
           <div className="flex items-center">
             <span className="text-xs text-muted-foreground w-16 shrink-0 font-medium">Owner:</span>
             <p className="text-sm text-muted-foreground truncate font-medium">
-              {displayNames?.[deal.lead_owner] || deal.lead_owner}
+              {deal.lead_owner}
             </p>
           </div>
         )}

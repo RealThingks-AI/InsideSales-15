@@ -4,18 +4,18 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Edit, Trash2, Eye, Copy, Search, Mail } from "lucide-react";
+import { Plus, Edit, Trash2, Info, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TablePagination } from "@/components/shared/TablePagination";
 import TemplatePreviewModal from "./email/TemplatePreviewModal";
-import { RichTextEditor } from "@/components/shared/RichTextEditor";
 
 interface EmailTemplate {
   id: string;
@@ -42,7 +42,6 @@ const EmailTemplatesSettings = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<EmailTemplate | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     subject: "",
@@ -75,32 +74,19 @@ const EmailTemplatesSettings = () => {
     fetchTemplates();
   }, []);
 
-  // Filter and pagination calculations
-  const filteredTemplates = useMemo(() => {
-    if (!searchQuery.trim()) return templates;
-    const query = searchQuery.toLowerCase();
-    return templates.filter(t => 
-      t.name.toLowerCase().includes(query) || 
-      t.subject.toLowerCase().includes(query)
-    );
-  }, [templates, searchQuery]);
-
-  const totalPages = Math.ceil(filteredTemplates.length / ITEMS_PER_PAGE);
+  // Pagination calculations
+  const totalPages = Math.ceil(templates.length / ITEMS_PER_PAGE);
   const paginatedTemplates = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredTemplates.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredTemplates, currentPage]);
+    return templates.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [templates, currentPage]);
 
-  // Reset to first page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
-
+  // Reset to first page when templates change
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
       setCurrentPage(1);
     }
-  }, [filteredTemplates, totalPages, currentPage]);
+  }, [templates, totalPages, currentPage]);
 
   const handleOpenModal = (template?: EmailTemplate) => {
     if (template) {
@@ -176,12 +162,8 @@ const EmailTemplatesSettings = () => {
 
       if (error) throw error;
 
-      // Immediately remove from local state for instant UI update
-      setTemplates(prev => prev.filter(t => t.id !== id));
-      setShowDeleteDialog(false);
-      setTemplateToDelete(null);
-      
       toast({ title: "Success", description: "Template deleted successfully" });
+      fetchTemplates();
     } catch (error) {
       console.error('Delete error:', error);
       toast({
@@ -189,39 +171,6 @@ const EmailTemplatesSettings = () => {
         description: "Failed to delete template",
         variant: "destructive",
       });
-    }
-  };
-
-  const handleDuplicate = async (template: EmailTemplate, e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation();
-    }
-    setSaving(true);
-    try {
-      const duplicateData = {
-        name: `${template.name} (Copy)`,
-        subject: template.subject,
-        body: template.body,
-        created_by: user?.id
-      };
-
-      const { error } = await supabase
-        .from('email_templates')
-        .insert([duplicateData]);
-
-      if (error) throw error;
-
-      toast({ title: "Success", description: "Template duplicated successfully" });
-      fetchTemplates();
-    } catch (error: any) {
-      console.error('Duplicate error:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to duplicate template",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -247,7 +196,7 @@ const EmailTemplatesSettings = () => {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center justify-between">
             <div>
               <CardTitle>Email Templates</CardTitle>
               <CardDescription>
@@ -260,16 +209,25 @@ const EmailTemplatesSettings = () => {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Search Bar */}
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search templates..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
+        <CardContent>
+          {/* Variable reference */}
+          <div className="mb-4 p-4 bg-muted/50 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <Info className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Available Variables</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {availableVariables.map((v) => (
+                <Tooltip key={v.variable}>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="cursor-help">
+                      {v.variable}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>{v.description}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
           </div>
 
           <Table>
@@ -279,43 +237,30 @@ const EmailTemplatesSettings = () => {
                 <TableHead>Name</TableHead>
                 <TableHead>Subject</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="w-[140px]">Actions</TableHead>
+                <TableHead className="w-[100px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginatedTemplates.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-12">
-                    <div className="flex flex-col items-center justify-center text-muted-foreground">
-                      <Mail className="h-10 w-10 mb-3 opacity-50" />
-                      <p className="font-medium">
-                        {searchQuery ? "No templates match your search" : "No email templates yet"}
-                      </p>
-                      <p className="text-sm mt-1">
-                        {searchQuery ? "Try adjusting your search terms" : "Create your first template to get started"}
-                      </p>
-                    </div>
+                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                    No email templates yet. Create your first template to get started.
                   </TableCell>
                 </TableRow>
               ) : (
                 paginatedTemplates.map((template) => (
-                  <TableRow 
-                    key={template.id}
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => handleOpenModal(template)}
-                  >
+                  <TableRow key={template.id}>
                     <TableCell className="font-medium">{template.name}</TableCell>
                     <TableCell>{template.subject}</TableCell>
                     <TableCell>{format(new Date(template.created_at), 'dd/MM/yyyy')}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation();
+                              onClick={() => {
                                 setPreviewTemplate(template);
                                 setShowPreviewModal(true);
                               }}
@@ -331,24 +276,7 @@ const EmailTemplatesSettings = () => {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={(e) => handleDuplicate(template, e)}
-                              disabled={saving}
-                              aria-label={`Duplicate ${template.name} template`}
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Duplicate</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenModal(template);
-                              }}
+                              onClick={() => handleOpenModal(template)}
                               aria-label={`Edit ${template.name} template`}
                             >
                               <Edit className="h-4 w-4" />
@@ -361,8 +289,7 @@ const EmailTemplatesSettings = () => {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation();
+                              onClick={() => {
                                 setTemplateToDelete(template.id);
                                 setShowDeleteDialog(true);
                               }}
@@ -382,12 +309,12 @@ const EmailTemplatesSettings = () => {
           </Table>
 
           {/* Pagination */}
-          {filteredTemplates.length > ITEMS_PER_PAGE && (
+          {templates.length > ITEMS_PER_PAGE && (
             <TablePagination
               currentPage={currentPage}
               totalPages={totalPages}
               itemsPerPage={ITEMS_PER_PAGE}
-              totalItems={filteredTemplates.length}
+              totalItems={templates.length}
               onPageChange={setCurrentPage}
               entityName="templates"
             />
@@ -397,7 +324,7 @@ const EmailTemplatesSettings = () => {
 
       {/* Template Modal */}
       <Dialog open={showModal} onOpenChange={setShowModal}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingTemplate ? "Edit Template" : "New Template"}</DialogTitle>
           </DialogHeader>
@@ -428,25 +355,14 @@ const EmailTemplatesSettings = () => {
 
             <div className="space-y-2">
               <Label htmlFor="body">Email Body *</Label>
-              <RichTextEditor
+              <Textarea
+                id="body"
                 value={formData.body}
-                onChange={(value) => setFormData(prev => ({ ...prev, body: value }))}
+                onChange={(e) => setFormData(prev => ({ ...prev, body: e.target.value }))}
                 placeholder="Write your email content here. Use variables like {{contact_name}} for personalization."
+                rows={8}
+                required
               />
-              {/* Variable helper in modal */}
-              <div className="flex flex-wrap gap-2 pt-2">
-                <span className="text-xs text-muted-foreground">Insert variable:</span>
-                {availableVariables.map((v) => (
-                  <Badge 
-                    key={v.variable} 
-                    variant="outline" 
-                    className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors text-xs"
-                    onClick={() => setFormData(prev => ({ ...prev, body: prev.body + v.variable }))}
-                  >
-                    {v.variable}
-                  </Badge>
-                ))}
-              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-4">

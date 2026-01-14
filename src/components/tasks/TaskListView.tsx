@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { formatDateTimeStandard } from '@/utils/formatUtils';
 import { Task, TaskStatus, TaskModuleType } from '@/types/task';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -58,8 +57,6 @@ interface TaskListViewProps {
   initialOwnerFilter?: string;
   selectedTasks?: string[];
   onSelectionChange?: (selectedIds: string[]) => void;
-  visibleColumns?: string[];
-  columnOrder?: string[];
 }
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -80,8 +77,6 @@ const moduleRoutes: Record<TaskModuleType, string> = {
   deals: '/deals',
 };
 
-const defaultVisibleColumns = ['checkbox', 'title', 'status', 'priority', 'due_date', 'assigned_to', 'linked_to', 'created_by', 'actions'];
-
 export const TaskListView = ({
   tasks,
   onEdit,
@@ -92,16 +87,10 @@ export const TaskListView = ({
   initialOwnerFilter = 'all',
   selectedTasks: externalSelectedTasks,
   onSelectionChange,
-  visibleColumns = defaultVisibleColumns,
-  columnOrder = [],
 }: TaskListViewProps) => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  // Default to hiding completed tasks unless explicitly set
-  const [statusFilter, setStatusFilter] = useState<string>(
-    initialStatusFilter === 'all' ? 'open,in_progress,cancelled' : initialStatusFilter
-  );
-  const [hideCompleted, setHideCompleted] = useState(initialStatusFilter === 'all');
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter);
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [assignedToFilter, setAssignedToFilter] = useState<string>(initialOwnerFilter);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -109,8 +98,6 @@ export const TaskListView = ({
   const [viewingTask, setViewingTask] = useState<Task | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
-  const [sortField, setSortField] = useState<string>('title');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   
   // Internal selection state - used when no external selection is provided
   const [internalSelectedTasks, setInternalSelectedTasks] = useState<string[]>([]);
@@ -135,60 +122,15 @@ export const TaskListView = ({
   const { displayNames } = useUserDisplayNames(allUserIds);
 
   const filteredTasks = useMemo(() => {
-    const filtered = tasks.filter(task => {
+    return tasks.filter(task => {
       const matchesSearch = task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         task.description?.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      // Handle multiple statuses (comma-separated) or single status
-      let matchesStatus = true;
-      if (statusFilter !== 'all') {
-        const allowedStatuses = statusFilter.split(',');
-        matchesStatus = allowedStatuses.includes(task.status);
-      }
-      
-      // Also check hideCompleted toggle
-      if (hideCompleted && task.status === 'completed') {
-        matchesStatus = false;
-      }
-      
+      const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
       const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter;
       const matchesAssignedTo = assignedToFilter === 'all' || task.assigned_to === assignedToFilter;
       return matchesSearch && matchesStatus && matchesPriority && matchesAssignedTo;
     });
-
-    // Sort filtered tasks
-    return filtered.sort((a, b) => {
-      let aValue: string | number | null = null;
-      let bValue: string | number | null = null;
-
-      switch (sortField) {
-        case 'title':
-          aValue = a.title?.toLowerCase() || '';
-          bValue = b.title?.toLowerCase() || '';
-          break;
-        case 'status':
-          aValue = a.status || '';
-          bValue = b.status || '';
-          break;
-        case 'priority':
-          const priorityOrder = { high: 0, medium: 1, low: 2 };
-          aValue = priorityOrder[a.priority as keyof typeof priorityOrder] ?? 99;
-          bValue = priorityOrder[b.priority as keyof typeof priorityOrder] ?? 99;
-          break;
-        case 'due_date':
-          aValue = a.due_date || '';
-          bValue = b.due_date || '';
-          break;
-        default:
-          aValue = a.title?.toLowerCase() || '';
-          bValue = b.title?.toLowerCase() || '';
-      }
-
-      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
-      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [tasks, searchTerm, statusFilter, hideCompleted, priorityFilter, assignedToFilter, sortField, sortDirection]);
+  }, [tasks, searchTerm, statusFilter, priorityFilter, assignedToFilter]);
 
   // Reset to first page when filters change
   useEffect(() => {
@@ -200,16 +142,12 @@ export const TaskListView = ({
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedTasks = filteredTasks.slice(startIndex, startIndex + itemsPerPage);
 
-  // Check if any filters are active (active tasks filter is the new default)
-  const hasActiveFilters = searchTerm !== '' || 
-    (statusFilter !== 'open,in_progress,cancelled' && statusFilter !== 'all') || 
-    priorityFilter !== 'all' || 
-    assignedToFilter !== 'all';
+  // Check if any filters are active
+  const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all' || priorityFilter !== 'all' || assignedToFilter !== 'all';
 
   const clearAllFilters = () => {
     setSearchTerm('');
-    setStatusFilter('open,in_progress,cancelled');
-    setHideCompleted(true);
+    setStatusFilter('all');
     setPriorityFilter('all');
     setAssignedToFilter('all');
   };
@@ -291,27 +229,12 @@ export const TaskListView = ({
             />
           </div>
           
-          <Select 
-            value={statusFilter === 'open,in_progress,cancelled' ? 'active' : statusFilter} 
-            onValueChange={(val) => {
-              if (val === 'active') {
-                setStatusFilter('open,in_progress,cancelled');
-                setHideCompleted(true);
-              } else if (val === 'all') {
-                setStatusFilter('all');
-                setHideCompleted(false);
-              } else {
-                setStatusFilter(val);
-                setHideCompleted(false);
-              }
-            }}
-          >
-            <SelectTrigger className="w-[160px]">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="active">Active Tasks</SelectItem>
-              <SelectItem value="all">All Tasks</SelectItem>
+              <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="open">Open</SelectItem>
               <SelectItem value="in_progress">In Progress</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
@@ -368,65 +291,36 @@ export const TaskListView = ({
           <Table>
             <TableHeader>
               <TableRow className="sticky top-0 z-20 bg-muted border-b-2">
-                {visibleColumns.includes('checkbox') && (
-                  <TableHead className="w-10 font-bold text-foreground">
-                    <Checkbox
-                      checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTasks.includes(t.id))}
-                      onCheckedChange={(checked) => {
-                        if (checked) {
-                          const newSelected = [...new Set([...selectedTasks, ...paginatedTasks.map(t => t.id)])];
-                          setSelectedTasks(newSelected);
-                        } else {
-                          const paginatedIds = paginatedTasks.map(t => t.id);
-                          setSelectedTasks(selectedTasks.filter(id => !paginatedIds.includes(id)));
-                        }
-                      }}
-                      aria-label="Select all on page"
-                    />
-                  </TableHead>
-                )}
-                {visibleColumns.includes('title') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Task</TableHead>
-                )}
-                {visibleColumns.includes('status') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Status</TableHead>
-                )}
-                {visibleColumns.includes('priority') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Priority</TableHead>
-                )}
-                {visibleColumns.includes('due_date') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Due Date</TableHead>
-                )}
-                {visibleColumns.includes('due_time') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Due Time</TableHead>
-                )}
-                {visibleColumns.includes('assigned_to') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Assigned To</TableHead>
-                )}
-                {visibleColumns.includes('linked_to') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Linked To</TableHead>
-                )}
-                {visibleColumns.includes('created_by') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Task Owner</TableHead>
-                )}
-                {visibleColumns.includes('module_type') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Module</TableHead>
-                )}
-                {visibleColumns.includes('description') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Description</TableHead>
-                )}
-                {visibleColumns.includes('created_at') && (
-                  <TableHead className="font-bold text-foreground px-4 py-3">Created Date</TableHead>
-                )}
-                {visibleColumns.includes('actions') && (
-                  <TableHead className="w-32 text-center font-bold text-foreground px-4 py-3">Actions</TableHead>
-                )}
+                <TableHead className="w-10 font-bold text-foreground">
+                  <Checkbox
+                    checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTasks.includes(t.id))}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        const newSelected = [...new Set([...selectedTasks, ...paginatedTasks.map(t => t.id)])];
+                        setSelectedTasks(newSelected);
+                      } else {
+                        const paginatedIds = paginatedTasks.map(t => t.id);
+                        setSelectedTasks(selectedTasks.filter(id => !paginatedIds.includes(id)));
+                      }
+                    }}
+                    aria-label="Select all on page"
+                  />
+                </TableHead>
+                <TableHead className="w-10 font-bold text-foreground"></TableHead>
+                <TableHead className="font-bold text-foreground px-4 py-3">Task</TableHead>
+                <TableHead className="font-bold text-foreground px-4 py-3">Status</TableHead>
+                <TableHead className="font-bold text-foreground px-4 py-3">Priority</TableHead>
+                <TableHead className="font-bold text-foreground px-4 py-3">Due Date</TableHead>
+                <TableHead className="font-bold text-foreground px-4 py-3">Assigned To</TableHead>
+                <TableHead className="font-bold text-foreground px-4 py-3">Linked To</TableHead>
+                <TableHead className="font-bold text-foreground px-4 py-3">Task Owner</TableHead>
+                <TableHead className="w-32 text-center font-bold text-foreground px-4 py-3">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginatedTasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={visibleColumns.length} className="text-center py-12">
+                  <TableCell colSpan={10} className="text-center py-12">
                     <div className="flex flex-col items-center gap-3">
                       <ListTodo className="w-10 h-10 text-muted-foreground/50" />
                       <div>
@@ -452,170 +346,126 @@ export const TaskListView = ({
                     <TableRow 
                       key={task.id} 
                       className={`hover:bg-muted/20 border-b group ${
-                        task.status === 'completed' 
-                          ? 'bg-emerald-50/50 dark:bg-emerald-900/10' 
-                          : dueDateInfo.isOverdue 
-                            ? 'bg-red-50 dark:bg-red-900/10' 
-                            : ''
+                        dueDateInfo.isOverdue ? 'bg-red-50 dark:bg-red-900/10' : ''
                       }`}
                     >
-                      {visibleColumns.includes('checkbox') && (
-                        <TableCell className="px-4 py-3">
-                          <Checkbox
-                            checked={selectedTasks.includes(task.id)}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setSelectedTasks([...selectedTasks, task.id]);
-                              } else {
-                                setSelectedTasks(selectedTasks.filter(id => id !== task.id));
+                      <TableCell className="px-4 py-3">
+                        <Checkbox
+                          checked={selectedTasks.includes(task.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedTasks([...selectedTasks, task.id]);
+                            } else {
+                              setSelectedTasks(selectedTasks.filter(id => id !== task.id));
+                            }
+                          }}
+                          aria-label={`Select ${task.title}`}
+                        />
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <Checkbox
+                          checked={task.status === 'completed'}
+                          onCheckedChange={() => onToggleComplete(task)}
+                        />
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <button
+                          onClick={() => setViewingTask(task)}
+                          className={`text-primary hover:underline font-medium text-left truncate ${
+                            task.status === 'completed' ? 'line-through text-muted-foreground' : ''
+                          }`}
+                        >
+                          <HighlightedText text={task.title} highlight={searchTerm} />
+                        </button>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <Badge variant="outline" className={`whitespace-nowrap ${getTaskStatusColor(task.status)}`}>
+                          {getTaskStatusLabel(task.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <Badge variant="outline" className={`whitespace-nowrap capitalize ${getTaskPriorityColor(task.priority)}`}>
+                          {task.priority}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        {task.due_date ? (
+                          <div className="flex items-center gap-1">
+                            {dueDateInfo.isOverdue && <AlertCircle className="h-3 w-3 text-red-600" />}
+                            <span className={dueDateInfo.color}>
+                              {dueDateInfo.isOverdue ? 'OVERDUE - ' : dueDateInfo.isDueToday ? 'Today - ' : ''}
+                              {format(new Date(task.due_date), 'dd/MM/yyyy')}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-center text-muted-foreground w-full block">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <span className="truncate block">
+                          {task.assigned_to ? (displayNames[task.assigned_to] || 'Loading...') : <span className="text-muted-foreground">Unassigned</span>}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        {linkedEntity && task.module_type ? (
+                          <button
+                            onClick={() => {
+                              const recordId = task.account_id || task.contact_id || task.lead_id || task.meeting_id || task.deal_id;
+                              if (recordId && task.module_type) {
+                                navigate(`${moduleRoutes[task.module_type]}?viewId=${recordId}`);
                               }
                             }}
-                            aria-label={`Select ${task.title}`}
-                          />
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('title') && (
-                        <TableCell className="px-4 py-3">
-                          <button
-                            onClick={() => setViewingTask(task)}
-                            className={`text-primary hover:underline font-medium text-left truncate ${
-                              task.status === 'completed' ? 'text-muted-foreground' : ''
-                            }`}
+                            className="flex items-center gap-1.5 text-sm text-primary hover:underline group"
                           >
-                            <HighlightedText text={task.title} highlight={searchTerm} />
-                          </button>
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('status') && (
-                        <TableCell className="px-4 py-3">
-                          <Badge variant="outline" className={`whitespace-nowrap ${getTaskStatusColor(task.status)}`}>
-                            {getTaskStatusLabel(task.status)}
-                          </Badge>
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('priority') && (
-                        <TableCell className="px-4 py-3">
-                          <Badge variant="outline" className={`whitespace-nowrap capitalize ${getTaskPriorityColor(task.priority)}`}>
-                            {task.priority}
-                          </Badge>
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('due_date') && (
-                        <TableCell className="px-4 py-3">
-                          {task.due_date ? (
-                            <div className="flex items-center gap-1">
-                              {dueDateInfo.isOverdue && <AlertCircle className="h-3 w-3 text-red-600" />}
-                              <span className={dueDateInfo.color}>
-                                {dueDateInfo.isOverdue ? 'OVERDUE - ' : dueDateInfo.isDueToday ? 'Today - ' : ''}
-                                {format(new Date(task.due_date), 'dd/MM/yyyy')}
+                            <Badge variant="outline" className={`${getModuleTypeColor(task.module_type)} capitalize gap-1`}>
+                              <linkedEntity.icon className="h-3 w-3" />
+                              <span className="truncate max-w-[80px]" title={linkedEntity.name}>
+                                {linkedEntity.name}
                               </span>
-                            </div>
-                          ) : (
-                            <span className="text-center text-muted-foreground w-full block">-</span>
-                          )}
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('due_time') && (
-                        <TableCell className="px-4 py-3">
-                          <span className="text-sm">{task.due_time || '-'}</span>
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('assigned_to') && (
-                        <TableCell className="px-4 py-3">
-                          <span className="truncate block">
-                            {task.assigned_to ? (displayNames[task.assigned_to] || 'Loading...') : <span className="text-muted-foreground">Unassigned</span>}
-                          </span>
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('linked_to') && (
-                        <TableCell className="px-4 py-3">
-                          {linkedEntity && task.module_type ? (
-                            <button
-                              onClick={() => {
-                                const recordId = task.account_id || task.contact_id || task.lead_id || task.meeting_id || task.deal_id;
-                                if (recordId && task.module_type) {
-                                  navigate(`${moduleRoutes[task.module_type]}?viewId=${recordId}`);
-                                }
-                              }}
-                              className="flex items-center gap-1.5 text-sm text-primary hover:underline group"
-                            >
-                              <Badge variant="outline" className={`${getModuleTypeColor(task.module_type)} capitalize gap-1`}>
-                                <linkedEntity.icon className="h-3 w-3" />
-                                <span className="truncate max-w-[80px]" title={linkedEntity.name}>
-                                  {linkedEntity.name}
-                                </span>
-                              </Badge>
-                              <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </button>
-                          ) : (
-                            <span className="text-center text-muted-foreground w-full block">-</span>
-                          )}
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('created_by') && (
-                        <TableCell className="px-4 py-3">
-                          {task.created_by ? (
-                            <div className="flex items-center gap-1 text-sm">
-                              <User className="h-3 w-3 text-muted-foreground" />
-                              <span className="truncate max-w-[100px]" title={displayNames[task.created_by]}>
-                                {displayNames[task.created_by] || 'Loading...'}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-center text-muted-foreground w-full block">-</span>
-                          )}
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('module_type') && (
-                        <TableCell className="px-4 py-3">
-                          {task.module_type ? (
-                            <Badge variant="outline" className={`${getModuleTypeColor(task.module_type)} capitalize`}>
-                              {task.module_type}
                             </Badge>
-                          ) : (
-                            <span className="text-center text-muted-foreground w-full block">-</span>
-                          )}
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('description') && (
-                        <TableCell className="px-4 py-3">
-                          <span className="truncate block max-w-[200px]" title={task.description || ''}>
-                            {task.description || '-'}
-                          </span>
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('created_at') && (
-                        <TableCell className="px-4 py-3">
-                          {task.created_at ? format(new Date(task.created_at), 'dd/MM/yyyy') : '-'}
-                        </TableCell>
-                      )}
-                      {visibleColumns.includes('actions') && (
-                        <TableCell className="w-20 px-4 py-3">
-                          <div className="flex items-center justify-center">
-                            <RowActionsDropdown
-                              actions={[
-                                {
-                                  label: "View Details",
-                                  icon: <Eye className="w-4 h-4" />,
-                                  onClick: () => setViewingTask(task)
-                                },
-                                {
-                                  label: "Edit",
-                                  icon: <Edit className="w-4 h-4" />,
-                                  onClick: () => onEdit(task)
-                                },
-                                {
-                                  label: "Delete",
-                                  icon: <Trash2 className="w-4 h-4" />,
-                                  onClick: () => handleDeleteClick(task),
-                                  destructive: true,
-                                  separator: true
-                                }
-                              ]}
-                            />
+                            <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </button>
+                        ) : (
+                          <span className="text-center text-muted-foreground w-full block">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        {task.created_by ? (
+                          <div className="flex items-center gap-1 text-sm">
+                            <User className="h-3 w-3 text-muted-foreground" />
+                            <span className="truncate max-w-[100px]" title={displayNames[task.created_by]}>
+                              {displayNames[task.created_by] || 'Loading...'}
+                            </span>
                           </div>
-                        </TableCell>
-                      )}
+                        ) : (
+                          <span className="text-center text-muted-foreground w-full block">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="w-20 px-4 py-3">
+                        <div className="flex items-center justify-center">
+                          <RowActionsDropdown
+                            actions={[
+                              {
+                                label: "View Details",
+                                icon: <Eye className="w-4 h-4" />,
+                                onClick: () => setViewingTask(task)
+                              },
+                              {
+                                label: "Edit",
+                                icon: <Edit className="w-4 h-4" />,
+                                onClick: () => onEdit(task)
+                              },
+                              {
+                                label: "Delete",
+                                icon: <Trash2 className="w-4 h-4" />,
+                                onClick: () => handleDeleteClick(task),
+                                destructive: true,
+                                separator: true
+                              }
+                            ]}
+                          />
+                        </div>
+                      </TableCell>
                     </TableRow>
                   );
                 })

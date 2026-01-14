@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.52.0';
 
@@ -6,32 +7,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
-
-// Retry helper for transient errors
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 2,
-  delayMs = 500
-): Promise<T> {
-  let lastError: Error | null = null;
-  for (let i = 0; i <= maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (error: unknown) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      const errorStatus = (error as { status?: number })?.status;
-      const errorName = (error as { name?: string })?.name;
-      // Retry on network errors or 503
-      if (i < maxRetries && (errorStatus === 503 || errorName === 'AuthRetryableFetchError')) {
-        console.log(`Retrying auth call (attempt ${i + 1})...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs * (i + 1)));
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw lastError;
-}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -65,23 +40,9 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    
-    // Use retry logic for getUser call to handle transient network errors
-    let user;
-    let authError;
-    try {
-      const result = await withRetry(() => supabaseAdmin.auth.getUser(token));
-      user = result.data;
-      authError = result.error;
-    } catch (error) {
-      console.error('Authentication error after retries:', error);
-      return new Response(
-        JSON.stringify({ error: 'Authentication service temporarily unavailable. Please try again.' }),
-        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const { data: user, error: authError } = await supabaseAdmin.auth.getUser(token);
 
-    if (authError || !user?.user) {
+    if (authError || !user.user) {
       console.error('Authentication error:', authError);
       return new Response(
         JSON.stringify({ error: 'Invalid authentication token' }),
@@ -192,9 +153,9 @@ serve(async (req) => {
         }
 
         const { userId, newRole } = body;
-        if (!userId || !newRole || !['admin', 'manager', 'user'].includes(newRole)) {
+        if (!userId || !newRole || !['admin', 'user'].includes(newRole)) {
           return new Response(
-            JSON.stringify({ error: 'Valid user ID and role (admin/manager/user) are required' }),
+            JSON.stringify({ error: 'Valid user ID and role (admin/user) are required' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
@@ -232,16 +193,6 @@ serve(async (req) => {
               JSON.stringify({ error: `Role update failed: ${roleError.message}` }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
-          }
-
-          // Clear user's cached permissions immediately so role change takes effect instantly
-          const { error: cacheError } = await supabaseAdmin
-            .from('user_access_cache')
-            .delete()
-            .eq('user_id', userId);
-
-          if (cacheError) {
-            console.warn('Failed to clear user cache (non-critical):', cacheError);
           }
 
           console.log('Role updated successfully in both auth and database by admin:', user.user.email);

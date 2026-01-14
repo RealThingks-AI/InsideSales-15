@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { UserNameUtils } from '@/utils/userNameUtils';
 
 const validStatuses = ['New', 'Working', 'Warm', 'Hot', 'Nurture', 'Closed-Won', 'Closed-Lost'];
 const validTags = [
@@ -36,6 +35,41 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
     return result;
   };
 
+  const fetchUserDisplayNames = async (userIds: string[]): Promise<Record<string, string>> => {
+    const uniqueIds = [...new Set(userIds.filter(id => id))];
+    if (uniqueIds.length === 0) return {};
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', uniqueIds);
+
+    const nameMap: Record<string, string> = {};
+    profiles?.forEach(profile => {
+      nameMap[profile.id] = profile.full_name || 'Unknown User';
+    });
+
+    return nameMap;
+  };
+
+  const fetchUserIdsByNames = async (names: string[]): Promise<Record<string, string>> => {
+    const uniqueNames = [...new Set(names.filter(name => name && name.trim()))];
+    if (uniqueNames.length === 0) return {};
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name');
+
+    const idMap: Record<string, string> = {};
+    profiles?.forEach(profile => {
+      if (profile.full_name) {
+        idMap[profile.full_name.toLowerCase()] = profile.id;
+      }
+    });
+
+    return idMap;
+  };
+
   const handleImport = async (file: File) => {
     setIsImporting(true);
 
@@ -66,7 +100,7 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
       }
 
       // Fetch user IDs by names
-      const userIdMap = await UserNameUtils.fetchUserIdsByNames(userNames);
+      const userIdMap = await fetchUserIdsByNames(userNames);
       
       const records: any[] = [];
       const errors: string[] = [];
@@ -105,6 +139,15 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
         // Check if record has a valid UUID for update (ignore non-UUID id values)
         const existingId = record.id && uuidRegex.test(record.id) ? record.id : null;
 
+        // Helper to resolve user ID from name or UUID
+        const resolveUserId = (value: string | null, defaultId: string): string => {
+          if (!value) return defaultId;
+          // Check if it's already a UUID
+          if (uuidRegex.test(value)) return value;
+          // Otherwise, look up by name
+          return userIdMap[value.toLowerCase()] || defaultId;
+        };
+
         records.push({
           id: existingId,
           company_name: companyName,
@@ -118,9 +161,8 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
           notes: record.notes || null,
           industry: record.industry || null,
           phone: record.phone || null,
-          // For updates, preserve original created_by; for inserts, use current user (RLS requirement)
-          original_created_by: UserNameUtils.resolveUserId(record.created_by, userIdMap, user.id),
-          account_owner: UserNameUtils.resolveUserId(record.account_owner, userIdMap, user.id),
+          created_by: resolveUserId(record.created_by, user.id),
+          account_owner: resolveUserId(record.account_owner, user.id),
           modified_by: user.id,
         });
       }
@@ -132,10 +174,9 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
       // Upsert by id or company_name
       let successCount = 0;
       let updateCount = 0;
-      const insertErrors: string[] = [];
 
       for (const record of records) {
-        const { id, original_created_by, ...recordWithoutId } = record;
+        const { id, ...recordWithoutId } = record;
 
         // If id is provided, try to update by id first
         if (id) {
@@ -146,16 +187,12 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
             .maybeSingle();
 
           if (existingById) {
-            const { error: updateError } = await supabase
+            const { error } = await supabase
               .from('accounts')
-              .update({ ...recordWithoutId, created_by: original_created_by, updated_at: new Date().toISOString() })
+              .update({ ...recordWithoutId, updated_at: new Date().toISOString() })
               .eq('id', id);
             
-            if (updateError) {
-              insertErrors.push(`Update failed for "${record.company_name}": ${updateError.message}`);
-            } else {
-              updateCount++;
-            }
+            if (!error) updateCount++;
             continue;
           }
         }
@@ -168,49 +205,24 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
           .maybeSingle();
 
         if (existing) {
-          const { error: updateError } = await supabase
+          const { error } = await supabase
             .from('accounts')
-            .update({ ...recordWithoutId, created_by: original_created_by, updated_at: new Date().toISOString() })
+            .update({ ...recordWithoutId, updated_at: new Date().toISOString() })
             .eq('id', existing.id);
           
-          if (updateError) {
-            insertErrors.push(`Update failed for "${record.company_name}": ${updateError.message}`);
-          } else {
-            updateCount++;
-          }
+          if (!error) updateCount++;
         } else {
-          // For new inserts, MUST use current user as created_by (RLS requirement)
-          const insertData = {
-            ...recordWithoutId,
-            created_by: user.id, // RLS requires created_by = auth.uid()
-          };
-          
-          const { error: insertError } = await supabase
+          const { error } = await supabase
             .from('accounts')
-            .insert(insertData);
+            .insert(recordWithoutId);
           
-          if (insertError) {
-            insertErrors.push(`Insert failed for "${record.company_name}": ${insertError.message}`);
-          } else {
-            successCount++;
-          }
+          if (!error) successCount++;
         }
       }
 
-      // Combine row-level errors with insert/update errors
-      const allErrors = [...errors, ...insertErrors];
-      
-      if (allErrors.length > 0) {
-        console.error('Import errors:', allErrors);
-      }
-
-      const successMessage = `Created ${successCount} new accounts, updated ${updateCount} existing accounts`;
-      const errorMessage = allErrors.length > 0 ? `. ${allErrors.length} rows failed.` : '';
-
       toast({
-        title: allErrors.length > 0 ? "Import Completed with Errors" : "Import Successful",
-        description: successMessage + errorMessage,
-        variant: allErrors.length > 0 ? "destructive" : "default",
+        title: "Import Successful",
+        description: `Created ${successCount} new accounts, updated ${updateCount} existing accounts${errors.length > 0 ? `. ${errors.length} rows had errors.` : ''}`,
       });
 
       onImportComplete();
@@ -250,71 +262,46 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
         if (account.modified_by) userIds.push(account.modified_by);
       });
 
-      const userNameMap = await UserNameUtils.fetchUserDisplayNames(userIds);
-
-      // Fetch linked data counts for each account
-      const accountIds = data.map(a => a.id);
-      
-      // Fetch tasks count per account
-      const { data: tasksData } = await supabase
-        .from('tasks')
-        .select('account_id')
-        .in('account_id', accountIds);
-      
-      const tasksCounts: Record<string, number> = {};
-      tasksData?.forEach(task => {
-        if (task.account_id) {
-          tasksCounts[task.account_id] = (tasksCounts[task.account_id] || 0) + 1;
-        }
-      });
-
-      // Fetch leads count per account
-      const { data: leadsData } = await supabase
-        .from('leads')
-        .select('account_id')
-        .in('account_id', accountIds);
-      
-      const leadsCounts: Record<string, number> = {};
-      leadsData?.forEach(lead => {
-        if (lead.account_id) {
-          leadsCounts[lead.account_id] = (leadsCounts[lead.account_id] || 0) + 1;
-        }
-      });
+      const userNameMap = await fetchUserDisplayNames(userIds);
 
       const headers = [
-        'ID', 'Company Name', 'Email', 'Phone', 'Company Type', 'Industry', 
-        'Tags', 'Country', 'Region', 'Status', 'Website', 'Notes',
-        'Last Activity Date', 'Linked Contacts', 'Linked Deals', 'Linked Leads', 'Tasks Count',
-        'Account Owner', 'Created By', 'Modified By', 'Created At', 'Updated At'
+        'id', 'company_name', 'email', 'company_type', 'industry', 'tags', 'country', 
+        'status', 'website', 'region', 'notes', 'phone',
+        'account_owner', 'created_by', 'modified_by', 'created_at', 'updated_at'
       ];
 
       const csvLines = [headers.join(',')];
 
       for (const account of data) {
-        const row = [
-          account.id || '',
-          escapeCSVField(account.company_name || ''),
-          escapeCSVField(account.email || ''),
-          escapeCSVField(account.phone || ''),
-          escapeCSVField(account.company_type || ''),
-          escapeCSVField(account.industry || ''),
-          account.tags ? account.tags.join(';') : '',
-          escapeCSVField(account.country || ''),
-          escapeCSVField(account.region || ''),
-          escapeCSVField(account.status || ''),
-          escapeCSVField(account.website || ''),
-          escapeCSVField(account.notes || ''),
-          account.last_activity_date ? format(new Date(account.last_activity_date), 'yyyy-MM-dd') : '',
-          account.contact_count || 0,
-          account.deal_count || 0,
-          leadsCounts[account.id] || 0,
-          tasksCounts[account.id] || 0,
-          account.account_owner ? (userNameMap[account.account_owner] || '') : '',
-          account.created_by ? (userNameMap[account.created_by] || '') : '',
-          account.modified_by ? (userNameMap[account.modified_by] || '') : '',
-          account.created_at ? format(new Date(account.created_at), 'yyyy-MM-dd HH:mm:ss') : '',
-          account.updated_at ? format(new Date(account.updated_at), 'yyyy-MM-dd HH:mm:ss') : '',
-        ];
+        const row = headers.map(header => {
+          let value = account[header as keyof typeof account];
+          
+          // Keep full ID for proper import matching (don't shorten)
+          
+          // Format dates for readability
+          if ((header === 'created_at' || header === 'updated_at') && value) {
+            try {
+              value = format(new Date(value as string), 'MMM dd, yyyy HH:mm');
+            } catch {
+              // Keep original if parsing fails
+            }
+          }
+          
+          // Convert UUID to display name for user fields
+          if ((header === 'account_owner' || header === 'created_by' || header === 'modified_by') && value) {
+            value = userNameMap[value as string] || '';
+          }
+          
+          if (header === 'tags' && Array.isArray(value)) {
+            value = value.join(';');
+          }
+          if (value === null || value === undefined) return '';
+          const strValue = String(value);
+          if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+            return `"${strValue.replace(/"/g, '""')}"`;
+          }
+          return strValue;
+        });
         csvLines.push(row.join(','));
       }
 
@@ -323,7 +310,7 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.setAttribute('href', url);
-      a.setAttribute('download', `accounts_export_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+      a.setAttribute('download', `accounts_export_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -348,12 +335,3 @@ export const useAccountsImportExport = (onImportComplete: () => void) => {
     isImporting
   };
 };
-
-// Helper function to escape CSV fields
-function escapeCSVField(field: string): string {
-  if (!field) return '';
-  if (field.includes(',') || field.includes('"') || field.includes('\n')) {
-    return `"${field.replace(/"/g, '""')}"`;
-  }
-  return field;
-}

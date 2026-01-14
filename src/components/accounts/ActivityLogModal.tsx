@@ -103,7 +103,7 @@ export const ActivityLogModal = ({ open, onOpenChange, accountId, onSuccess }: A
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Log Activity</DialogTitle>
         </DialogHeader>

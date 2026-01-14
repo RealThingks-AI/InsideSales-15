@@ -3,10 +3,9 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useMeetingsImportExport } from "@/hooks/useMeetingsImportExport";
-import { useColumnPreferences } from "@/hooks/useColumnPreferences";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -25,8 +24,9 @@ import { TablePagination } from "@/components/shared/TablePagination";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { getMeetingStatus } from "@/utils/meetingStatus";
-import { getMeetingStatusColor } from "@/utils/statusBadgeUtils";
 import { MeetingDetailModal } from "@/components/meetings/MeetingDetailModal";
+import { TaskModal } from "@/components/tasks/TaskModal";
+import { useTasks } from "@/hooks/useTasks";
 
 type SortColumn = 'subject' | 'date' | 'time' | 'lead_contact' | 'status' | null;
 type SortDirection = 'asc' | 'desc';
@@ -64,8 +64,9 @@ const Meetings = () => {
   const {
     toast
   } = useToast();
-  const queryClient = useQueryClient();
-  // Removed filteredMeetings state - using sortedAndFilteredMeetings directly
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [filteredMeetings, setFilteredMeetings] = useState<Meeting[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
@@ -76,35 +77,24 @@ const Meetings = () => {
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>(initialStatus);
   const [organizerFilter, setOrganizerFilter] = useState<string>("all");
-  const [sortColumn, setSortColumn] = useState<SortColumn>('subject');
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   
-  // Column customizer state with persistence
+  // Column customizer state
   const [showColumnCustomizer, setShowColumnCustomizer] = useState(false);
-  const { columns, saveColumns, isSaving } = useColumnPreferences({
-    moduleName: 'meetings',
-    defaultColumns: defaultMeetingColumns,
-  });
-  const [localColumns, setLocalColumns] = useState<MeetingColumnConfig[]>(columns);
+  const [columns, setColumns] = useState<MeetingColumnConfig[]>(defaultMeetingColumns);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [taskMeetingId, setTaskMeetingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setLocalColumns(columns);
-  }, [columns]);
+  const { createTask } = useTasks();
 
   const handleCreateTask = (meeting: Meeting) => {
-    const params = new URLSearchParams({
-      create: '1',
-      module: 'meetings',
-      recordId: meeting.id,
-      recordName: encodeURIComponent(meeting.subject || 'Meeting'),
-      return: '/meetings',
-      returnViewId: meeting.id,
-    });
-    navigate(`/tasks?${params.toString()}`);
+    setTaskMeetingId(meeting.id);
+    setTaskModalOpen(true);
   };
 
   // Get owner parameter from URL - "me" means filter by current user
@@ -132,49 +122,6 @@ const Meetings = () => {
     }
   }, [searchParams]);
 
-  // viewId effect is moved below the meetings query
-
-  // Fetch all profiles for organizer dropdown with caching
-  const { data: allProfiles = [] } = useQuery({
-    queryKey: ['all-profiles'],
-    queryFn: async () => {
-      const { data } = await supabase.from('profiles').select('id, full_name');
-      return data || [];
-    },
-    staleTime: 10 * 60 * 1000, // 10 minutes
-  });
-
-  // Fetch meetings with React Query caching
-  const { data: meetings = [], isLoading: loading, refetch: refetchMeetings } = useQuery({
-    queryKey: ['meetings'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('meetings').select(`
-          *,
-          leads:lead_id (lead_name),
-          contacts:contact_id (contact_name)
-        `).order('start_time', {
-        ascending: true
-      });
-      if (error) throw error;
-      return (data || []).map(meeting => ({
-        ...meeting,
-        lead_name: meeting.leads?.lead_name,
-        contact_name: meeting.contacts?.contact_name
-      })) as Meeting[];
-    },
-    staleTime: 2 * 60 * 1000, // 2 minutes
-  });
-
-  const fetchMeetings = () => {
-    refetchMeetings();
-  };
-
-  // Get organizer display names
-  const organizerIds = useMemo(() => {
-    return [...new Set(meetings.map(m => m.created_by).filter(Boolean))] as string[];
-  }, [meetings]);
-  const { displayNames: organizerNames } = useUserDisplayNames(organizerIds);
-
   // Handle viewId from URL (from global search)
   useEffect(() => {
     const viewId = searchParams.get('viewId');
@@ -183,6 +130,7 @@ const Meetings = () => {
       if (meetingToView) {
         setEditingMeeting(meetingToView);
         setShowModal(true);
+        // Clear the viewId from URL after opening
         setSearchParams(prev => {
           prev.delete('viewId');
           return prev;
@@ -190,6 +138,58 @@ const Meetings = () => {
       }
     }
   }, [searchParams, meetings, setSearchParams]);
+
+  // Fetch all profiles for organizer dropdown
+  const { data: allProfiles = [] } = useQuery({
+    queryKey: ['all-profiles'],
+    queryFn: async () => {
+      const { data } = await supabase.from('profiles').select('id, full_name');
+      return data || [];
+    },
+  });
+
+  // Get organizer display names
+  const organizerIds = useMemo(() => {
+    return [...new Set(meetings.map(m => m.created_by).filter(Boolean))] as string[];
+  }, [meetings]);
+  const { displayNames: organizerNames } = useUserDisplayNames(organizerIds);
+
+  const fetchMeetings = async () => {
+    try {
+      setLoading(true);
+      const {
+        data,
+        error
+      } = await supabase.from('meetings').select(`
+          *,
+          leads:lead_id (lead_name),
+          contacts:contact_id (contact_name)
+        `).order('start_time', {
+        ascending: true
+      });
+      if (error) throw error;
+      const transformedData = (data || []).map(meeting => ({
+        ...meeting,
+        lead_name: meeting.leads?.lead_name,
+        contact_name: meeting.contacts?.contact_name
+      }));
+      setMeetings(transformedData);
+      setSelectedMeetings([]);
+    } catch (error) {
+      console.error('Error fetching meetings:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch meetings",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMeetings();
+  }, []);
 
   const getEffectiveStatus = (meeting: Meeting) => {
     return getMeetingStatus(meeting);
@@ -205,7 +205,10 @@ const Meetings = () => {
   };
 
   const getSortIcon = (column: SortColumn) => {
-    return null; // Hide sort icons but keep sorting on click
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-4 w-4 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />;
+    }
+    return sortDirection === 'asc' ? <ArrowUp className="h-4 w-4 ml-1" /> : <ArrowDown className="h-4 w-4 ml-1" />;
   };
 
   const sortedAndFilteredMeetings = useMemo(() => {
@@ -253,20 +256,17 @@ const Meetings = () => {
     return filtered;
   }, [meetings, searchTerm, statusFilter, organizerFilter, sortColumn, sortDirection]);
 
-  // Reset to first page when filters change (without storing filtered in state)
-  const prevFilterKey = useRef('');
-  const filterKey = `${searchTerm}-${statusFilter}-${organizerFilter}`;
-  if (filterKey !== prevFilterKey.current) {
-    prevFilterKey.current = filterKey;
-    if (currentPage !== 1) setCurrentPage(1);
-  }
+  useEffect(() => {
+    setFilteredMeetings(sortedAndFilteredMeetings);
+    setCurrentPage(1); // Reset to first page when filters change
+  }, [sortedAndFilteredMeetings]);
 
-  // Use sortedAndFilteredMeetings directly instead of storing in state
-  const totalPages = Math.ceil(sortedAndFilteredMeetings.length / ITEMS_PER_PAGE);
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredMeetings.length / ITEMS_PER_PAGE);
   const paginatedMeetings = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return sortedAndFilteredMeetings.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [sortedAndFilteredMeetings, currentPage]);
+    return filteredMeetings.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredMeetings, currentPage]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -335,16 +335,28 @@ const Meetings = () => {
     return subject.split(' ').slice(0, 2).map(word => word.charAt(0).toUpperCase()).join('');
   };
 
-// Generate consistent vibrant color from subject
+  // Generate consistent color from subject
   const getAvatarColor = (name: string) => {
-    const colors = ['bg-blue-600', 'bg-emerald-600', 'bg-purple-600', 'bg-amber-600', 
-      'bg-rose-600', 'bg-cyan-600', 'bg-indigo-600', 'bg-teal-600'];
+    const colors = ['bg-slate-500', 'bg-slate-600', 'bg-zinc-500', 'bg-gray-500', 'bg-stone-500', 'bg-neutral-500', 'bg-slate-700', 'bg-zinc-600'];
     const index = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
     return colors[index];
   };
 
-  // Use shared status badge styling from utilities
-  const getStatusBadgeClasses = (status: string) => getMeetingStatusColor(status);
+  // Status badge styling matching Accounts module pattern
+  const getStatusBadgeClasses = (status: string) => {
+    switch (status) {
+      case 'scheduled':
+        return 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+      case 'ongoing':
+        return 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+      case 'completed':
+        return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+      case 'cancelled':
+        return 'bg-gray-100 text-gray-600 dark:bg-gray-800/30 dark:text-gray-400 border-gray-200 dark:border-gray-700';
+      default:
+        return 'bg-muted text-muted-foreground border-border';
+    }
+  };
 
   const getStatusBadge = (meeting: Meeting) => {
     const status = getEffectiveStatus(meeting);
@@ -366,22 +378,22 @@ const Meetings = () => {
       successful: {
         label: "Successful",
         icon: <CheckCircle2 className="h-3 w-3" />,
-        className: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+        className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
       },
       follow_up_needed: {
         label: "Follow-up",
         icon: <AlertCircle className="h-3 w-3" />,
-        className: "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+        className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
       },
       no_show: {
         label: "No-show",
         icon: <UserX className="h-3 w-3" />,
-        className: "bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300 border-rose-200 dark:border-rose-800"
+        className: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
       },
       rescheduled: {
         label: "Rescheduled",
         icon: <CalendarClock className="h-3 w-3" />,
-        className: "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 border-blue-200 dark:border-blue-800"
+        className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
       }
     };
     const config = outcomeConfig[outcome];
@@ -393,7 +405,7 @@ const Meetings = () => {
   };
 
   const isColumnVisible = (field: string) => {
-    const col = localColumns.find(c => c.field === field);
+    const col = columns.find(c => c.field === field);
     return col ? col.visible : true;
   };
 
@@ -422,8 +434,14 @@ const Meetings = () => {
     }
   };
 
-  // Show skeleton instead of blocking full-screen loader
-  const showSkeleton = loading && meetings.length === 0;
+  if (loading) {
+    return <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading meetings...</p>
+        </div>
+      </div>;
+  }
 
   return <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Hidden file input for import */}
@@ -483,7 +501,7 @@ const Meetings = () => {
                     <Upload className="h-4 w-4 mr-2" />
                     {isImporting ? 'Importing...' : 'Import CSV'}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleExport(sortedAndFilteredMeetings)} disabled={isExporting || sortedAndFilteredMeetings.length === 0}>
+                  <DropdownMenuItem onClick={() => handleExport(filteredMeetings)} disabled={isExporting || filteredMeetings.length === 0}>
                     <Download className="h-4 w-4 mr-2" />
                     {isExporting ? 'Exporting...' : 'Export CSV'}
                   </DropdownMenuItem>
@@ -511,15 +529,10 @@ const Meetings = () => {
 
       {/* Main Content */}
       <div className="flex-1 min-h-0 overflow-hidden px-4 pt-2 pb-4 flex flex-col">
-        {showSkeleton ? (
-          <div className="space-y-4 flex-1">
-            <div className="h-10 bg-muted animate-pulse rounded" />
-            <div className="h-64 bg-muted animate-pulse rounded" />
-          </div>
-        ) : viewMode === 'calendar' ? (
+        {viewMode === 'calendar' ? (
           <div className="flex-1 min-h-0 overflow-auto">
             <MeetingsCalendarView
-              meetings={sortedAndFilteredMeetings}
+              meetings={filteredMeetings}
               onMeetingClick={(meeting) => {
                 setEditingMeeting(meeting);
                 setShowModal(true);
@@ -652,7 +665,10 @@ const Meetings = () => {
                         {isColumnVisible('subject') && (
                           <TableCell className="px-4 py-3">
                             <button 
-                              onClick={() => setViewingMeeting(meeting)}
+                              onClick={() => {
+                                setEditingMeeting(meeting);
+                                setShowModal(true);
+                              }}
                               className="text-primary hover:underline font-medium text-left truncate"
                             >
                               <HighlightedText text={meeting.subject} highlight={searchTerm} />
@@ -760,7 +776,7 @@ const Meetings = () => {
               <div className="flex items-center justify-between p-4 border-t">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">
-                    Showing {sortedAndFilteredMeetings.length === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, sortedAndFilteredMeetings.length)} of {sortedAndFilteredMeetings.length} meetings
+                    Showing {filteredMeetings.length === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredMeetings.length)} of {filteredMeetings.length} meetings
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -801,10 +817,8 @@ const Meetings = () => {
       <MeetingColumnCustomizer
         open={showColumnCustomizer}
         onOpenChange={setShowColumnCustomizer}
-        columns={localColumns}
-        onColumnsChange={setLocalColumns}
-        onSave={saveColumns}
-        isSaving={isSaving}
+        columns={columns}
+        onColumnsChange={setColumns}
       />
 
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
@@ -850,6 +864,13 @@ const Meetings = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Task Modal */}
+      <TaskModal
+        open={taskModalOpen}
+        onOpenChange={setTaskModalOpen}
+        onSubmit={createTask}
+        context={taskMeetingId ? { module: 'meetings', recordId: taskMeetingId, locked: true } : undefined}
+      />
     </div>;
 };
 export default Meetings;

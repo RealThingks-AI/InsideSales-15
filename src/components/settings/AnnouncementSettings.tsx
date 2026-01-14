@@ -287,7 +287,7 @@ const AnnouncementSettings = () => {
 
       {/* Create/Edit Modal */}
       <Dialog open={showModal} onOpenChange={setShowModal}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {editingAnnouncement ? 'Edit Announcement' : 'Create Announcement'}
