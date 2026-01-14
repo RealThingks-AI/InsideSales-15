@@ -10,8 +10,6 @@ import { useToast } from "@/hooks/use-toast";
 import { BulkActionsBar } from "./BulkActionsBar";
 import { DealsAdvancedFilter, AdvancedFilterState } from "./DealsAdvancedFilter";
 import { DeleteConfirmDialog } from "./shared/DeleteConfirmDialog";
-import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
-import { useDealsImportExport } from "@/hooks/useDealsImportExport";
 
 interface KanbanBoardProps {
   deals: Deal[];
@@ -49,17 +47,6 @@ export const KanbanBoard = ({
     probabilityRange: [0, 100],
   });
   const { toast } = useToast();
-
-  // Get owner IDs for display names
-  const ownerIds = useMemo(() => {
-    return [...new Set(deals.map(d => d.lead_owner).filter(Boolean))] as string[];
-  }, [deals]);
-  const { displayNames } = useUserDisplayNames(ownerIds);
-
-  // Initialize import/export for bulk export
-  const { handleExportSelected } = useDealsImportExport({
-    onRefresh
-  });
 
   // Generate available options for multi-select filters
   const availableOptions = useMemo(() => {
@@ -232,9 +219,7 @@ export const KanbanBoard = ({
   };
 
   const handleBulkExport = () => {
-    if (selectedDeals.size === 0) return;
-    const selectedDealObjects = deals.filter(deal => selectedDeals.has(deal.id));
-    handleExportSelected(deals, Array.from(selectedDeals));
+    // Export logic handled by ImportExportBar
   };
 
   const toggleSelectionMode = () => {
@@ -459,7 +444,6 @@ export const KanbanBoard = ({
                                     isDragging={snapshot.isDragging}
                                     isSelected={selectedDeals.has(deal.id)}
                                     selectionMode={selectionMode}
-                                    displayNames={displayNames}
                                     onDelete={(dealId) => {
                                       const targetDeal = deals.find(d => d.id === dealId);
                                       setDealToDelete(targetDeal || null);

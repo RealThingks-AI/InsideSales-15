@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useCRUDAudit } from "@/hooks/useCRUDAudit";
@@ -16,21 +16,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X, Eye, User, CalendarPlus, Pencil, CheckSquare } from "lucide-react";
 import { RowActionsDropdown, Edit, Trash2, Mail, UserPlus } from "./RowActionsDropdown";
 import { ContactDeleteConfirmDialog } from "./ContactDeleteConfirmDialog";
-
+import { ContactSegmentFilter } from "./ContactSegmentFilter";
 import { ContactModal } from "./ContactModal";
 import { ContactColumnCustomizer, ContactColumnConfig, defaultContactColumns } from "./ContactColumnCustomizer";
 import { ContactDetailModal } from "./contacts/ContactDetailModal";
 import { AccountDetailModalById } from "./accounts/AccountDetailModalById";
 import { SendEmailModal } from "./SendEmailModal";
 import { MeetingModal } from "./MeetingModal";
-import { ConvertContactToLeadModal } from "./contacts/ConvertContactToLeadModal";
-import { MergeRecordsModal } from "./shared/MergeRecordsModal";
+import { TaskModal } from "./tasks/TaskModal";
 import { HighlightedText } from "./shared/HighlightedText";
 import { ClearFiltersButton } from "./shared/ClearFiltersButton";
 import { TableSkeleton } from "./shared/Skeletons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { moveFieldToEnd } from "@/utils/columnOrderUtils";
-import { formatDateTimeStandard } from "@/utils/formatUtils";
+import { useTasks } from "@/hooks/useTasks";
+import { useQuery } from "@tanstack/react-query";
 
 // Export ref interface for parent component
 export interface ContactTableRef {
@@ -48,21 +46,27 @@ interface Contact {
   email?: string;
   phone_no?: string;
   mobile_no?: string;
+  region?: string;
   city?: string;
   state?: string;
   contact_owner?: string;
   created_time?: string;
   modified_time?: string;
   lead_status?: string;
+  industry?: string;
   contact_source?: string;
   linkedin?: string;
+  website?: string;
   description?: string;
   annual_revenue?: number;
   no_of_employees?: number;
   created_by?: string;
   modified_by?: string;
   tags?: string[];
+  score?: number;
+  segment?: string;
   email_opens?: number;
+  email_clicks?: number;
   engagement_score?: number;
   last_contacted_at?: string;
 }
@@ -92,9 +96,10 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
 }, ref) => {
   const { toast } = useToast();
   const { logDelete, logBulkDelete } = useCRUDAudit();
-  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -125,29 +130,22 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
   
   const [sourceFilter, setSourceFilter] = useState<string>(() => sourceParam || "all");
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
-  
+  const [segmentFilter, setSegmentFilter] = useState<string>("all");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
-  // Use cached auth instead of fetching user each time
-  const { data: authData } = useQuery({
-    queryKey: ['current-user'],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      return user;
-    },
-    staleTime: 10 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
-
-  // Set current user ID from cached auth
+  // Fetch current user ID for "me" filtering
   useEffect(() => {
-    if (authData) {
-      setCurrentUserId(authData.id);
-      if (ownerParam === 'me') {
-        setOwnerFilter(authData.id);
+    const fetchCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
+        if (ownerParam === 'me') {
+          setOwnerFilter(user.id);
+        }
       }
-    }
-  }, [authData, ownerParam]);
+    };
+    fetchCurrentUser();
+  }, [ownerParam]);
 
   // Sync filters when URL changes
   useEffect(() => {
@@ -168,88 +166,6 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [contactToDelete, setContactToDelete] = useState<string | null>(null);
   
-  // viewId effect is moved below the contacts query
-  
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
-  const [sortField, setSortField] = useState<string | null>('contact_name');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-  
-  // Modal states
-  const [viewAccountId, setViewAccountId] = useState<string | null>(null);
-  const [accountViewOpen, setAccountViewOpen] = useState(false);
-  const [emailContact, setEmailContact] = useState<Contact | null>(null);
-  const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [meetingModalOpen, setMeetingModalOpen] = useState(false);
-  const [meetingContact, setMeetingContact] = useState<Contact | null>(null);
-  
-  // Convert to Lead modal states
-  const [convertModalOpen, setConvertModalOpen] = useState(false);
-  const [contactToConvert, setContactToConvert] = useState<Contact | null>(null);
-  
-  // Merge modal states
-  const [mergeModalOpen, setMergeModalOpen] = useState(false);
-  const [mergeSourceId, setMergeSourceId] = useState<string>("");
-  const [mergeTargetId, setMergeTargetId] = useState<string>("");
-  
-  const navigate = useNavigate();
-
-  const handleCreateTask = (contact: Contact) => {
-    const params = new URLSearchParams({
-      create: '1',
-      module: 'contacts',
-      recordId: contact.id,
-      recordName: encodeURIComponent(contact.contact_name || 'Contact'),
-      return: '/contacts',
-      returnViewId: contact.id,
-    });
-    navigate(`/tasks?${params.toString()}`);
-  };
-
-  // Fetch all profiles for owner dropdown with caching
-  const { data: allProfiles = [] } = useQuery({
-    queryKey: ['all-profiles'],
-    queryFn: async () => {
-      const { data } = await supabase.from('profiles').select('id, full_name');
-      return data || [];
-    },
-    staleTime: 10 * 60 * 1000, // 10 minutes
-  });
-
-  // Fetch contacts with React Query caching
-  const { data: contacts = [], isLoading: loading, refetch: refetchContacts } = useQuery({
-    queryKey: ['contacts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('contacts')
-        .select(`
-          *,
-          accounts:account_id (
-            company_name,
-            industry,
-            region
-          )
-        `)
-        .order('created_time', { ascending: false });
-
-      if (error) throw error;
-
-      // Transform data to include account fields
-      return (data || []).map(contact => ({
-        ...contact,
-        account_company_name: contact.accounts?.company_name || contact.company_name || null,
-        account_industry: contact.accounts?.industry,
-        account_region: contact.accounts?.region,
-      })) as Contact[];
-    },
-    staleTime: 2 * 60 * 1000, // 2 minutes
-  });
-
-  const fetchContacts = () => {
-    refetchContacts();
-  };
-
   // Handle viewId from URL (from global search)
   const viewId = searchParams.get('viewId');
   useEffect(() => {
@@ -266,6 +182,28 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
       }
     }
   }, [viewId, contacts, setSearchParams]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  
+  // Modal states
+  const [viewAccountId, setViewAccountId] = useState<string | null>(null);
+  const [accountViewOpen, setAccountViewOpen] = useState(false);
+  const [emailContact, setEmailContact] = useState<Contact | null>(null);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [meetingModalOpen, setMeetingModalOpen] = useState(false);
+  const [meetingContact, setMeetingContact] = useState<Contact | null>(null);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [taskContactId, setTaskContactId] = useState<string | null>(null);
+
+  const { createTask } = useTasks();
+
+  const handleCreateTask = (contact: Contact) => {
+    setTaskContactId(contact.id);
+    setTaskModalOpen(true);
+  };
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -276,6 +214,56 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
       );
     }
   }), [selectedContacts, contacts]);
+
+  // Fetch all profiles for owner dropdown
+  const { data: allProfiles = [] } = useQuery({
+    queryKey: ['all-profiles'],
+    queryFn: async () => {
+      const { data } = await supabase.from('profiles').select('id, full_name');
+      return data || [];
+    },
+  });
+
+  const fetchContacts = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('contacts')
+        .select(`
+          *,
+          accounts:account_id (
+            company_name,
+            industry,
+            region
+          )
+        `)
+        .order('created_time', { ascending: false });
+
+      if (error) throw error;
+
+      // Transform data to include account fields
+      const transformedData = (data || []).map(contact => ({
+        ...contact,
+        account_company_name: contact.accounts?.company_name || contact.company_name || null,
+        account_industry: contact.accounts?.industry,
+        account_region: contact.accounts?.region,
+      }));
+
+      setContacts(transformedData);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch contacts. Please refresh the page.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchContacts();
+  }, []);
 
   useEffect(() => {
     if (refreshTrigger && refreshTrigger > 0) {
@@ -293,6 +281,9 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
       contact.email?.toLowerCase().includes(searchLower) ||
       contact.phone_no?.toLowerCase().includes(searchLower) ||
       contact.linkedin?.toLowerCase().includes(searchLower) ||
+      contact.website?.toLowerCase().includes(searchLower) ||
+      contact.industry?.toLowerCase().includes(searchLower) ||
+      contact.region?.toLowerCase().includes(searchLower) ||
       contact.description?.toLowerCase().includes(searchLower) ||
       contact.position?.toLowerCase().includes(searchLower) ||
       contact.tags?.some(tag => tag.toLowerCase().includes(searchLower))
@@ -310,6 +301,10 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
       filtered = filtered.filter(contact => contact.contact_owner === ownerFilter);
     }
 
+    // Apply segment filter
+    if (segmentFilter && segmentFilter !== "all") {
+      filtered = filtered.filter(contact => contact.segment === segmentFilter);
+    }
 
     // Apply tag filter
     if (tagFilter) {
@@ -333,7 +328,7 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
 
     setFilteredContacts(filtered);
     setCurrentPage(1);
-  }, [contacts, debouncedSearchTerm, sourceFilter, ownerFilter, tagFilter, sortField, sortDirection]);
+  }, [contacts, debouncedSearchTerm, sourceFilter, ownerFilter, segmentFilter, tagFilter, sortField, sortDirection]);
 
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -345,7 +340,10 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
   };
 
   const getSortIcon = (field: string) => {
-    return null; // Hide sort icons but keep sorting on click
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />;
+    }
+    return sortDirection === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />;
   };
 
   const handleDelete = async (id: string) => {
@@ -410,19 +408,46 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
     }
   };
 
-  const handleConvertToLead = (contact: Contact) => {
-    setContactToConvert(contact);
-    setConvertModalOpen(true);
-  };
+  const handleConvertToLead = async (contact: Contact) => {
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('User not authenticated');
 
-  const handleMergeLeads = (contactId: string, leadId: string) => {
-    // For now, we'll just show a toast - full merge functionality would require more complex handling
-    // since we're merging contact -> lead (different entities)
-    toast({
-      title: "Merge Feature",
-      description: "Contact-to-Lead merge functionality will open the lead for review.",
-    });
-    // Navigate to lead or open lead detail
+      const leadData: any = {
+        lead_name: contact.contact_name,
+        created_by: user.id,
+        created_time: new Date().toISOString(),
+        modified_time: new Date().toISOString()
+      };
+
+      if (contact.company_name) leadData.company_name = contact.company_name;
+      if (contact.position) leadData.position = contact.position;
+      if (contact.email) leadData.email = contact.email;
+      if (contact.phone_no) leadData.phone_no = contact.phone_no;
+      if (contact.linkedin) leadData.linkedin = contact.linkedin;
+      if (contact.website) leadData.website = contact.website;
+      if (contact.contact_source) leadData.contact_source = contact.contact_source;
+      if (contact.industry) leadData.industry = contact.industry;
+      if (contact.region) leadData.country = contact.region;
+      if (contact.description) leadData.description = contact.description;
+      if (contact.contact_owner) leadData.contact_owner = contact.contact_owner;
+
+      const { error } = await supabase.from('leads').insert([leadData]).select().single();
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `Contact "${contact.contact_name}" has been converted to a lead.`
+      });
+
+      fetchContacts();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to convert contact to lead.",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleSelectAll = (checked: boolean) => {
@@ -452,10 +477,7 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
     setShowDetailModal(true);
   };
 
-  const visibleColumns = moveFieldToEnd(
-    localColumns.filter((col) => col.visible).sort((a, b) => a.order - b.order),
-    "contact_owner",
-  );
+  const visibleColumns = localColumns.filter(col => col.visible);
   const totalPages = Math.ceil(filteredContacts.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const pageContacts = filteredContacts.slice(startIndex, startIndex + itemsPerPage);
@@ -471,12 +493,13 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
   const { displayNames } = useUserDisplayNames(ownerIds);
 
   // Check if any filters are active
-  const hasActiveFilters = debouncedSearchTerm !== "" || sourceFilter !== "all" || ownerFilter !== "all" || tagFilter !== null;
+  const hasActiveFilters = debouncedSearchTerm !== "" || sourceFilter !== "all" || ownerFilter !== "all" || segmentFilter !== "all" || tagFilter !== null;
 
   const clearAllFilters = () => {
     setSearchTerm("");
     setSourceFilter("all");
     setOwnerFilter("all");
+    setSegmentFilter("all");
     setTagFilter(null);
   };
 
@@ -490,11 +513,10 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
   };
 
   // Generate consistent color from name
-  // Generate consistent vibrant color from name (matching Accounts pattern)
   const getAvatarColor = (name: string) => {
     const colors = [
-      'bg-blue-600', 'bg-emerald-600', 'bg-purple-600', 'bg-amber-600', 
-      'bg-rose-600', 'bg-cyan-600', 'bg-indigo-600', 'bg-teal-600'
+      'bg-slate-500', 'bg-slate-600', 'bg-zinc-500', 'bg-gray-500',
+      'bg-stone-500', 'bg-neutral-500', 'bg-slate-700', 'bg-zinc-600'
     ];
     const index = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
     return colors[index];
@@ -507,10 +529,6 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
     } else if (columnField === 'created_by') {
       if (!contact.created_by) return '-';
       return displayNames[contact.created_by] || "Loading...";
-    } else if (columnField === 'created_time' || columnField === 'modified_time') {
-      const dateValue = contact[columnField as keyof Contact];
-      if (!dateValue) return '-';
-      return formatDateTimeStandard(dateValue as string);
     }
     return contact[columnField as keyof Contact] || '-';
   };
@@ -563,7 +581,7 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
             </SelectContent>
           </Select>
 
-          
+          <ContactSegmentFilter value={segmentFilter} onValueChange={setSegmentFilter} />
 
           {tagFilter && (
             <Badge variant="secondary" className="flex items-center gap-1">
@@ -704,6 +722,22 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
                           ) : (
                             <span className="text-center text-muted-foreground w-full block">-</span>
                           )
+                        ) : column.field === 'score' ? (
+                          contact.score != null ? (
+                            <span className={`font-medium ${contact.score >= 70 ? 'text-green-600 dark:text-green-400' : contact.score >= 40 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>
+                              {contact.score}
+                            </span>
+                          ) : (
+                            <span className="text-center text-muted-foreground w-full block">-</span>
+                          )
+                        ) : column.field === 'segment' ? (
+                          contact.segment ? (
+                            <Badge variant="outline" className="text-xs">
+                              {contact.segment}
+                            </Badge>
+                          ) : (
+                            <span className="text-center text-muted-foreground w-full block">-</span>
+                          )
                         ) : column.field === 'tags' && contact.tags && contact.tags.length > 0 ? (
                           <TooltipProvider>
                             <Tooltip>
@@ -752,9 +786,17 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
                           )
                         ) : column.field === 'email_opens' ? (
                           <span className="text-center w-full block">{contact.email_opens ?? 0}</span>
+                        ) : column.field === 'email_clicks' ? (
+                          <span className="text-center w-full block">{contact.email_clicks ?? 0}</span>
                         ) : column.field === 'last_contacted_at' ? (
                           contact.last_contacted_at ? (
-                            <span className="text-sm">{formatDateTimeStandard(contact.last_contacted_at)}</span>
+                            <span className="text-sm">{new Date(contact.last_contacted_at).toLocaleDateString()}</span>
+                          ) : (
+                            <span className="text-center text-muted-foreground w-full block">-</span>
+                          )
+                        ) : column.field === 'industry' ? (
+                          contact.industry ? (
+                            <HighlightedText text={contact.industry} highlight={debouncedSearchTerm} />
                           ) : (
                             <span className="text-center text-muted-foreground w-full block">-</span>
                           )
@@ -783,15 +825,14 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
                               icon: <Pencil className="w-4 h-4" />,
                               onClick: () => handleEditContact(contact)
                             },
-                            {
+                            ...(contact.email ? [{
                               label: "Send Email",
                               icon: <Mail className="w-4 h-4" />,
                               onClick: () => {
                                 setEmailContact(contact);
                                 setEmailModalOpen(true);
-                              },
-                              disabled: !contact.email
-                            },
+                              }
+                            }] : []),
                             {
                               label: "Create Meeting",
                               icon: <CalendarPlus className="w-4 h-4" />,
@@ -951,26 +992,12 @@ export const ContactTable = forwardRef<ContactTableRef, ContactTableProps>(({
         }}
       />
 
-      {/* Convert to Lead Modal */}
-      <ConvertContactToLeadModal
-        open={convertModalOpen}
-        onOpenChange={setConvertModalOpen}
-        contact={contactToConvert}
-        onSuccess={() => {
-          fetchContacts();
-          setContactToConvert(null);
-        }}
-        onMergeLead={handleMergeLeads}
-      />
-
-      {/* Merge Records Modal */}
-      <MergeRecordsModal
-        open={mergeModalOpen}
-        onOpenChange={setMergeModalOpen}
-        entityType="contacts"
-        sourceId={mergeSourceId}
-        targetId={mergeTargetId}
-        onSuccess={fetchContacts}
+      {/* Task Modal */}
+      <TaskModal
+        open={taskModalOpen}
+        onOpenChange={setTaskModalOpen}
+        onSubmit={createTask}
+        context={taskContactId ? { module: 'contacts', recordId: taskContactId, locked: true } : undefined}
       />
     </div>
   );

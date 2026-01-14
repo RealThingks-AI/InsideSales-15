@@ -147,8 +147,7 @@ export class GenericCSVProcessor {
         const isValid = recordValidator(rowObj);
         if (!isValid) {
           result.errorCount++;
-          const rowPreview = rowObj.contact_name || rowObj.lead_name || rowObj.id || 'Unknown';
-          result.errors.push(`Validation failed for: ${rowPreview}`);
+          result.errors.push(`Row validation failed for record`);
           continue;
         }
 
@@ -202,8 +201,7 @@ export class GenericCSVProcessor {
 
           if (insertError) {
             result.errorCount++;
-            const rowPreview = insertData.contact_name || insertData.lead_name || insertData.id || 'Unknown';
-            result.errors.push(`Insert failed for "${rowPreview}": ${insertError.message}`);
+            result.errors.push(`Insert failed: ${insertError.message}`);
           } else {
             result.successCount++;
             console.log('New record inserted successfully');

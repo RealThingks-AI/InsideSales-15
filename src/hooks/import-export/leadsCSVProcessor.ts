@@ -90,8 +90,18 @@ export class LeadsCSVProcessor {
           }
         });
 
-        // Prepare lead record (action_items_json is now ignored if present)
-        delete rowObj.action_items_json; // Remove if present in old exports
+        // Extract action items if present
+        let actionItemsData: any[] = [];
+        if (rowObj.action_items_json) {
+          try {
+            actionItemsData = JSON.parse(rowObj.action_items_json);
+            delete rowObj.action_items_json; // Remove from lead data
+          } catch (error) {
+            console.warn('Failed to parse action items JSON:', error);
+          }
+        }
+
+        // Prepare lead record
         const leadRecord = this.prepareLead(rowObj, options.userId);
 
         // Validate required fields - ensure lead_name is present and not empty
@@ -102,6 +112,7 @@ export class LeadsCSVProcessor {
         }
 
         let leadId: string;
+        let isUpdate = false;
 
         // Check for existing lead by ID only (as per requirements)
         if (rowObj.id && rowObj.id.trim() !== '') {
@@ -126,6 +137,7 @@ export class LeadsCSVProcessor {
               continue;
             }
             result.updateCount++;
+            isUpdate = true;
             console.log('Updated existing lead:', leadId);
           } else {
             // Insert new lead with provided ID - ensure all required fields are present
@@ -173,6 +185,11 @@ export class LeadsCSVProcessor {
           console.log('Inserted new lead without ID:', leadId);
         }
 
+        // Process action items if any
+        if (actionItemsData.length > 0) {
+          await this.processActionItems(leadId, actionItemsData, options.userId, isUpdate);
+        }
+
       } catch (error: any) {
         result.errorCount++;
         result.errors.push(`Row processing error: ${error.message}`);
@@ -192,7 +209,7 @@ export class LeadsCSVProcessor {
       leadRecord.created_by = userId;
     }
 
-    // Map CSV fields to database fields in exact order - Added account_id
+    // Map CSV fields to database fields in exact order
     const fieldMapping: Record<string, string> = {
       'lead_name': 'lead_name',
       'company_name': 'company_name',
@@ -205,8 +222,7 @@ export class LeadsCSVProcessor {
       'lead_status': 'lead_status',
       'industry': 'industry',
       'country': 'country',
-      'description': 'description',
-      'account_id': 'account_id'
+      'description': 'description'
     };
 
     Object.entries(fieldMapping).forEach(([csvField, dbField]) => {
@@ -243,5 +259,41 @@ export class LeadsCSVProcessor {
     }
 
     return leadRecord;
+  }
+
+  private async processActionItems(leadId: string, actionItemsData: any[], userId: string, isUpdate: boolean = false) {
+    try {
+      // Clear existing action items only for updates to avoid conflicts
+      if (isUpdate) {
+        await supabase
+          .from('lead_action_items')
+          .delete()
+          .eq('lead_id', leadId);
+      }
+
+      // Insert new action items
+      const actionItemsToInsert = actionItemsData.map(item => ({
+        lead_id: leadId,
+        next_action: item.next_action || '',
+        status: item.status || 'Open',
+        due_date: item.due_date || null,
+        assigned_to: item.assigned_to || null,
+        created_by: userId
+      }));
+
+      if (actionItemsToInsert.length > 0) {
+        const { error } = await supabase
+          .from('lead_action_items')
+          .insert(actionItemsToInsert);
+
+        if (error) {
+          console.error('Error inserting action items:', error);
+        } else {
+          console.log(`Inserted ${actionItemsToInsert.length} action items for lead ${leadId}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error processing action items:', error);
+    }
   }
 }

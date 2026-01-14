@@ -13,10 +13,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import { LEAD_SOURCES } from "@/utils/leadStatusUtils";
 import { DuplicateWarning } from "./shared/DuplicateWarning";
-import { MergeRecordsModal } from "./shared/MergeRecordsModal";
 import { AccountModal } from "./AccountModal";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -33,7 +32,6 @@ const leadSchema = z.object({
   contact_source: z.string().optional(),
   lead_status: z.string().optional(),
   description: z.string().max(1000, "Description must be less than 1000 characters").optional(),
-  contact_owner: z.string().optional(),
 });
 
 type LeadFormData = z.infer<typeof leadSchema>;
@@ -77,11 +75,6 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountSearch, setAccountSearch] = useState("");
   const [accountModalOpen, setAccountModalOpen] = useState(false);
-  const [users, setUsers] = useState<{ id: string; full_name: string | null }[]>([]);
-  
-  // Merge modal state
-  const [mergeModalOpen, setMergeModalOpen] = useState(false);
-  const [mergeTargetId, setMergeTargetId] = useState<string>("");
 
   // Handler for when a new account is created
   const handleAccountCreated = (newAccount: Account) => {
@@ -151,28 +144,24 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
       contact_source: "",
       lead_status: "New",
       description: "",
-      contact_owner: "",
     },
   });
 
-  // Fetch accounts and users for dropdowns
+  // Fetch accounts for dropdown
   useEffect(() => {
-    const fetchData = async () => {
-      const [accountsResult, usersResult] = await Promise.all([
-        supabase.from('accounts').select('id, company_name').order('company_name', { ascending: true }),
-        supabase.from('profiles').select('id, full_name').order('full_name', { ascending: true })
-      ]);
+    const fetchAccounts = async () => {
+      const { data, error } = await supabase
+        .from('accounts')
+        .select('id, company_name')
+        .order('company_name', { ascending: true });
       
-      if (!accountsResult.error && accountsResult.data) {
-        setAccounts(accountsResult.data);
-      }
-      if (!usersResult.error && usersResult.data) {
-        setUsers(usersResult.data);
+      if (!error && data) {
+        setAccounts(data);
       }
     };
     
     if (open) {
-      fetchData();
+      fetchAccounts();
     }
   }, [open]);
 
@@ -188,7 +177,6 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
         contact_source: lead.contact_source || "",
         lead_status: lead.lead_status || "New",
         description: lead.description || "",
-        contact_owner: (lead as any).contact_owner || "",
       });
     } else {
       form.reset({
@@ -201,7 +189,6 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
         contact_source: "",
         lead_status: "New",
         description: "",
-        contact_owner: "",
       });
     }
   }, [lead, form]);
@@ -251,7 +238,6 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
         lead_status: data.lead_status || 'New',
         description: data.description || null,
         modified_by: user.data.user.id,
-        contact_owner: data.contact_owner || user.data.user.id,
       };
 
       if (lead) {
@@ -285,6 +271,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
         const newLeadData = {
           ...baseLeadData,
           created_by: user.data.user.id,
+          contact_owner: user.data.user.id,
           created_time: new Date().toISOString(),
         };
         
@@ -330,7 +317,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" disableOutsidePointerEvents={false}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {lead ? "Edit Lead" : "Add New Lead"}
@@ -341,15 +328,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
             {/* Duplicate Warning */}
             {!lead && duplicates.length > 0 && (
-              <DuplicateWarning 
-                duplicates={duplicates} 
-                entityType="lead"
-                onMerge={(duplicateId) => {
-                  setMergeTargetId(duplicateId);
-                  setMergeModalOpen(true);
-                }}
-                preventCreation={duplicates.some(d => d.matchType === "exact")}
-              />
+              <DuplicateWarning duplicates={duplicates} entityType="lead" />
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -361,7 +340,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
                     <FormLabel>Lead Name *</FormLabel>
                     <FormControl>
                       <Input 
-                        placeholder="e.g., John Smith"
+                        placeholder="Lead Name" 
                         {...field}
                         onChange={(e) => {
                           field.onChange(e);
@@ -383,7 +362,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
                     <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select account...">
+                          <SelectValue placeholder="Select account">
                             {field.value && accounts.find(a => a.id === field.value)?.company_name}
                           </SelectValue>
                         </SelectTrigger>
@@ -442,7 +421,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
                   <FormItem>
                     <FormLabel>Position</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., CEO, Sales Manager" {...field} />
+                      <Input placeholder="CEO" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -458,7 +437,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
                     <FormControl>
                       <Input 
                         type="email" 
-                        placeholder="e.g., name@company.com" 
+                        placeholder="email@example.com" 
                         {...field}
                         onChange={(e) => {
                           field.onChange(e);
@@ -508,7 +487,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select source..." />
+                          <SelectValue placeholder="Select source" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -533,7 +512,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select status..." />
+                          <SelectValue placeholder="New" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -548,31 +527,6 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
                               )}
                               {status.status_name}
                             </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="contact_owner"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Lead Owner</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select owner..." />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {users.map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.full_name || 'Unknown User'}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -612,7 +566,7 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
               <Button type="submit" disabled={loading}>
                 {loading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <span className="animate-spin mr-2">⏳</span>
                     {lead ? "Saving..." : "Creating..."}
                   </>
                 ) : lead ? "Save Changes" : "Add Lead"}
@@ -629,24 +583,6 @@ export const LeadModal = ({ open, onOpenChange, lead, onSuccess }: LeadModalProp
         onSuccess={() => {}}
         onCreated={handleAccountCreated}
       />
-
-      {/* Merge Modal */}
-      {mergeTargetId && (
-        <MergeRecordsModal
-          open={mergeModalOpen}
-          onOpenChange={(open) => {
-            setMergeModalOpen(open);
-            if (!open) setMergeTargetId("");
-          }}
-          entityType="leads"
-          sourceId=""
-          targetId={mergeTargetId}
-          onSuccess={() => {
-            onSuccess();
-            onOpenChange(false);
-          }}
-        />
-      )}
     </Dialog>
   );
 };
