@@ -449,17 +449,19 @@ const handler = async (req: Request): Promise<Response> => {
     // If it's a new email, thread_id will be set to the new email's own ID after creation
     let resolvedThreadId = threadId || parentEmailId || null;
 
-    // If parentEmailId is provided, fetch the parent's message_id for email headers
+    // If parentEmailId is provided, fetch the parent's message_id and conversation_id for threading
     let resolvedParentMessageId = parentMessageId;
+    let parentConversationId: string | null = null;
     if (parentEmailId && !resolvedParentMessageId) {
       const { data: parentEmail } = await supabase
         .from("email_history")
-        .select("message_id, thread_id")
+        .select("message_id, thread_id, conversation_id")
         .eq("id", parentEmailId)
         .single();
       
       if (parentEmail) {
         resolvedParentMessageId = parentEmail.message_id;
+        parentConversationId = parentEmail.conversation_id || null;
         // Use parent's thread_id if available
         if (parentEmail.thread_id && !resolvedThreadId) {
           resolvedThreadId = parentEmail.thread_id;
@@ -645,8 +647,9 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    // Fetch the sent message to get its Message-ID for reply tracking
+    // Fetch the sent message to get its Message-ID and conversationId for threading
     let messageId: string | null = null;
+    let conversationId: string | null = null;
     let retries = 0;
     const maxRetries = 4;
 
@@ -655,7 +658,8 @@ const handler = async (req: Request): Promise<Response> => {
       retries++;
       
       try {
-        const sentItemsUrl = `https://graph.microsoft.com/v1.0/users/${from}/mailFolders/SentItems/messages?$top=10&$orderby=sentDateTime desc&$select=internetMessageId,subject,sentDateTime,toRecipients`;
+        // Include conversationId in the select to capture it for threading
+        const sentItemsUrl = `https://graph.microsoft.com/v1.0/users/${from}/mailFolders/SentItems/messages?$top=10&$orderby=sentDateTime desc&$select=internetMessageId,subject,sentDateTime,toRecipients,conversationId`;
         
         const sentResponse = await fetch(sentItemsUrl, {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -675,7 +679,8 @@ const handler = async (req: Request): Promise<Response> => {
 
           if (recentMessages.length === 1) {
             messageId = recentMessages[0].internetMessageId;
-            console.log(`Single recent email - captured Message-ID on attempt ${retries}: ${messageId}`);
+            conversationId = recentMessages[0].conversationId || null;
+            console.log(`Single recent email - captured Message-ID on attempt ${retries}: ${messageId}, conversationId: ${conversationId}`);
             break;
           }
 
@@ -700,7 +705,8 @@ const handler = async (req: Request): Promise<Response> => {
               
               if (subjectSimilar || recentMessages.length <= 2) {
                 messageId = msg.internetMessageId;
-                console.log(`Matched by recipient + subject on attempt ${retries}: ${messageId}`);
+                conversationId = msg.conversationId || null;
+                console.log(`Matched by recipient + subject on attempt ${retries}: ${messageId}, conversationId: ${conversationId}`);
                 break;
               }
             }
@@ -710,7 +716,8 @@ const handler = async (req: Request): Promise<Response> => {
             for (const msg of recentMessages) {
               if (msg.subject === subject) {
                 messageId = msg.internetMessageId;
-                console.log(`Matched by exact subject on attempt ${retries}: ${messageId}`);
+                conversationId = msg.conversationId || null;
+                console.log(`Matched by exact subject on attempt ${retries}: ${messageId}, conversationId: ${conversationId}`);
                 break;
               }
             }
@@ -726,16 +733,17 @@ const handler = async (req: Request): Promise<Response> => {
     if (!messageId) {
       console.warn(`Could not capture Message-ID for email to ${cleanedTo} after ${maxRetries} attempts`);
     } else {
-      console.log(`Successfully captured Message-ID: ${messageId}`);
+      console.log(`Successfully captured Message-ID: ${messageId}${conversationId ? `, conversationId: ${conversationId}` : ''}`);
     }
 
-    // Update email history with Message-ID
+    // Update email history with Message-ID and conversationId
     await supabase
       .from("email_history")
       .update({ 
         status: "sent",
         is_valid_open: true,
         message_id: messageId,
+        conversation_id: conversationId,
       })
       .eq("id", emailRecord.id);
 
