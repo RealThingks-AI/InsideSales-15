@@ -203,15 +203,10 @@ async function sendNewEmail(
   const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" style="display:none;" alt="" />`;
   const bodyWithTracking = bodyWithClickTracking + trackingPixel;
 
-  // If we're sending a reply via /sendMail (fallback when Graph Reply API isn't allowed),
-  // explicitly set RFC headers so Outlook/Exchange can thread the message.
-  const internetMessageHeaders: Array<{ name: string; value: string }> = [];
-  if (emailRequest.isReply && emailRequest.parentMessageId) {
-    internetMessageHeaders.push(
-      { name: "In-Reply-To", value: emailRequest.parentMessageId },
-      { name: "References", value: emailRequest.parentMessageId }
-    );
-  }
+  // Note: Microsoft Graph's sendMail endpoint does NOT support standard RFC headers
+  // like "In-Reply-To" or "References" - it requires custom headers to start with "x-" or "X-".
+  // Threading via sendMail fallback won't have proper email threading, but the email will send.
+  // For proper threading, the Graph Reply API (createReply) should be used instead.
 
   const emailPayload: any = {
     message: {
@@ -228,7 +223,6 @@ async function sendNewEmail(
           },
         },
       ],
-      ...(internetMessageHeaders.length > 0 ? { internetMessageHeaders } : {}),
     },
     saveToSentItems: true,
   };
