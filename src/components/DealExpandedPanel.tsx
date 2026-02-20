@@ -238,18 +238,19 @@ const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, cellRef }: Stakeh
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
-          className="flex items-center justify-center w-5 h-5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          className="flex items-center justify-center w-6 h-5 rounded hover:bg-accent/80 text-muted-foreground hover:text-foreground transition-colors shrink-0"
           title="Add contact"
         >
-          <Plus className="h-3 w-3" />
+          <Plus className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         className="p-0 z-[200]"
-        style={{ width: `${dropdownWidth}px` }}
+        style={{ width: `${Math.max(dropdownWidth, 200)}px` }}
         align="start"
         side="bottom"
-        avoidCollisions={false}
+        sideOffset={4}
+        avoidCollisions={true}
         onWheel={e => e.stopPropagation()}
       >
         <Command shouldFilter={false}>
@@ -368,19 +369,13 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
   };
 
   return (
-    <div className="px-2 pt-2 pb-1.5">
-      <div className="border-t border-border pt-2.5">
-        {/*
-          Layout per cell (each cell = 50% of total):
-          |── 18% label ──|── 34% names ──|── 5% info ──|── 5% add ──|
-          Remaining 38% is left as flex-1 spacer so + button stays at far right of cell.
-        */}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+    <div className="px-3 pt-2.5 pb-2">
+      <div className="border-t border-border pt-3">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
           {STAKEHOLDER_ROLES.map(({ role, label }) => {
             const roleStakeholders = stakeholders.filter(s => s.role === role);
             const excludeIds = roleStakeholders.map(s => s.contact_id);
 
-            // Create a stable ref getter for each role
             const getCellRef = (el: HTMLDivElement | null) => {
               cellRefs.current[role] = el;
             };
@@ -390,43 +385,44 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
               <div
                 key={role}
                 ref={getCellRef}
-                className="flex items-start min-w-0"
+                className="flex items-start min-w-0 pb-2 border-b border-border/40 last:border-b-0"
               >
-                {/* Label — fixed width, no wrap */}
+                {/* Label */}
                 <span
-                  className="text-[10px] font-medium text-muted-foreground shrink-0 pt-0.5 leading-4 whitespace-nowrap"
-                  style={{ width: "38%" }}
+                  className="text-xs font-medium text-muted-foreground shrink-0 pt-0.5 leading-5 whitespace-nowrap"
+                  style={{ width: "28%" }}
                 >
                   {label} :
                 </span>
 
-                {/* Contact names — stacked vertically, truncated */}
-                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                {/* Contact names */}
+                <div className="flex flex-col gap-1 min-w-0 flex-1 pl-1">
                   {roleStakeholders.map(sh => (
                     <div
                       key={sh.id}
-                      className="group/row flex items-center gap-0.5 min-w-0 h-4"
+                      className="group/row flex items-center gap-1 min-w-0 h-5"
                     >
-                      <span className="truncate text-[10px] font-medium leading-4 flex-1 min-w-0">
+                      <span className="truncate text-xs font-medium leading-5 flex-1 min-w-0">
                         {contactNames[sh.contact_id] || "…"}
                       </span>
-                      {/* Hover-only X remove */}
                       <button
                         className="opacity-0 group-hover/row:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
                         onClick={() => handleRemoveContact(sh.id)}
                         title="Remove"
                       >
-                        <X className="h-2.5 w-2.5" />
+                        <X className="h-3 w-3" />
                       </button>
                     </div>
                   ))}
-                  {roleStakeholders.length === 0 && <div className="h-4" />}
+                  {roleStakeholders.length === 0 && (
+                    <span className="text-xs text-muted-foreground/50 italic leading-5 h-5">--</span>
+                  )}
                 </div>
 
-                {/* Info buttons — one per contact, stacked */}
-                <div className="flex flex-col gap-0.5 items-center shrink-0" style={{ width: "18px" }}>
+                {/* Info buttons */}
+                <div className="flex flex-col gap-1 items-center shrink-0" style={{ width: "24px" }}>
                   {roleStakeholders.map(sh => (
-                    <div key={sh.id} className="h-4 flex items-center justify-center">
+                    <div key={sh.id} className="h-5 flex items-center justify-center">
                       <Popover
                         open={editingNote === sh.id}
                         onOpenChange={(open) => {
@@ -436,13 +432,13 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
                       >
                         <PopoverTrigger asChild>
                           <button
-                            className="flex items-center justify-center w-4 h-4 rounded hover:bg-accent"
+                            className="flex items-center justify-center w-6 h-5 rounded hover:bg-accent/80 transition-colors"
                             title={sh.note ? sh.note : "Add note"}
                           >
-                            <Info className={cn("h-2.5 w-2.5 shrink-0", sh.note ? "text-primary" : "text-muted-foreground opacity-50 hover:opacity-100")} />
+                            <Info className={cn("h-3 w-3 shrink-0", sh.note ? "text-primary" : "text-muted-foreground/60 hover:text-muted-foreground")} />
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-60 p-2 z-[200]" side="top" align="start">
+                        <PopoverContent className="w-60 p-2.5 z-[200]" side="top" align="start" avoidCollisions={true}>
                           <Textarea
                             value={noteText}
                             onChange={(e) => setNoteText(e.target.value)}
@@ -452,7 +448,7 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
                           />
                           <Button
                             size="sm"
-                            className="mt-1.5 h-6 text-[10px] w-full"
+                            className="mt-2 h-7 text-xs w-full"
                             onClick={() => handleSaveNote(sh.id, noteText)}
                           >
                             Save
@@ -461,11 +457,11 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
                       </Popover>
                     </div>
                   ))}
-                  {roleStakeholders.length === 0 && <div className="h-4" />}
+                  {roleStakeholders.length === 0 && <div className="h-5" />}
                 </div>
 
-                {/* Single + Add button — always pinned at top-right of cell */}
-                <div className="flex items-start justify-center pt-0.5 shrink-0" style={{ width: "18px" }}>
+                {/* Add button */}
+                <div className="flex items-start justify-center pt-0.5 shrink-0" style={{ width: "24px" }}>
                   <StakeholderAddDropdown
                     contacts={allContacts}
                     excludeIds={excludeIds}
