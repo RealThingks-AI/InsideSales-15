@@ -402,9 +402,56 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
                       key={sh.id}
                       className="group/row flex items-center gap-1 min-w-0 h-5"
                     >
-                      <span className="truncate text-xs font-medium leading-5 flex-1 min-w-0">
-                        {contactNames[sh.contact_id] || "…"}
-                      </span>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button className="truncate text-xs font-medium leading-5 flex-1 min-w-0 text-left hover:text-primary hover:underline transition-colors cursor-pointer">
+                            {contactNames[sh.contact_id] || "…"}
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          className="p-0 z-[200]"
+                          style={{ width: "220px" }}
+                          align="start"
+                          side="bottom"
+                          sideOffset={4}
+                          avoidCollisions={true}
+                          onWheel={e => e.stopPropagation()}
+                        >
+                          <Command shouldFilter={false}>
+                            <CommandInput placeholder="Replace contact…" className="h-8 text-xs" />
+                            <CommandList
+                              className="max-h-[180px] overflow-y-auto"
+                              onWheel={e => { e.stopPropagation(); (e.currentTarget as HTMLElement).scrollTop += e.deltaY; }}
+                            >
+                              <CommandGroup>
+                                {allContacts
+                                  .filter(c => c.id !== sh.contact_id && !excludeIds.includes(c.id))
+                                  .slice(0, 80)
+                                  .map(c => (
+                                    <CommandItem
+                                      key={c.id}
+                                      value={c.contact_name}
+                                      onSelect={async () => {
+                                        await handleRemoveContact(sh.id);
+                                        await handleAddContact(role, c);
+                                      }}
+                                      className="cursor-pointer py-1 px-2"
+                                    >
+                                      <div className="flex flex-col min-w-0">
+                                        <span className="text-xs font-medium truncate">{c.contact_name}</span>
+                                        {(c.company_name || c.position) && (
+                                          <span className="text-[10px] text-muted-foreground truncate">
+                                            {[c.company_name, c.position].filter(Boolean).join(" • ")}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
                       <button
                         className="opacity-0 group-hover/row:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
                         onClick={() => handleRemoveContact(sh.id)}
