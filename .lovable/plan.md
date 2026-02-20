@@ -1,104 +1,86 @@
-# Fix Unresponsive Form Fields in Modal Dialogs
 
-## Problem Analysis
+## Stakeholders Section – Full Layout Redesign
 
-The user reported that when creating a task in the Account section, the form fields (particularly Select dropdowns, Calendar popovers, and other interactive elements) are not responsive/clickable.
+### Reference Image Analysis
 
-### Root Cause
+The image defines a precise column layout for each of the 2 stakeholder columns (50% of total width each):
 
-The issue is a **z-index stacking context conflict** between the Dialog component and its child components (Select, Popover, Calendar):
+```text
+|-- 14% Label --|-- 30% Contact Name(s) --|-- 3% info --|-- 3% + --|
+```
 
-1. **Dialog** uses `z-50` for both the overlay and content
-2. **Select/Popover/Calendar** dropdowns also use `z-50`
-3. When a Select dropdown opens inside a Dialog, it renders in a portal at the same z-level as the Dialog, causing:
-   - Dropdowns appearing behind the dialog overlay
-   - Click events being intercepted by the overlay
-   - Fields appearing unresponsive
+- **Label** (14%): "Budget Owner", "Champion", etc. — fixed, vertically top-aligned
+- **Contact Names** (30%): stacked vertically, one per row, each truncated
+- **Info button** (3%): one `i` button per contact, stacked alongside the contact name — appears/disappears per row
+- **+ Add button** (3%): a single `+` icon button, appears on the **first row** only (top-right), opens a dropdown of 40% width
 
-### Affected Components
+Key observations:
+- The `+` button does **NOT** shift for each contact — it's fixed at top-right of the role block
+- Each contact row is: `[contact name (30%)] [i button (3%)]`
+- The `+` column (3%) is separate and sits on the right, aligned to the top
+- When no contacts: label + empty space + `+` button
 
-Based on analysis, these modal components use Select/Popover inside Dialogs and may have the same issue:
+### Implementation Plan
 
-1. `src/components/tasks/TaskModal.tsx` - Task creation (primary issue reported)
-2. `src/components/AccountModal.tsx` - Account creation/editing
-3. `src/components/ContactModal.tsx` - Contact creation/editing
-4. `src/components/LeadModal.tsx` - Lead creation/editing
-5. `src/components/MeetingModal.tsx` - Meeting creation/editing
-6. `src/components/DealForm.tsx` - Deal form fields
-7. Various detail modals with editable fields
+**File: `src/components/DealExpandedPanel.tsx`** — rewrite `StakeholdersSection` (lines 257–310)
 
-## Solution
+#### 1. Lift contacts fetch into `StakeholdersSection` (single fetch, shared across all 4 roles)
 
-### Approach: Increase z-index for dropdown portals inside dialogs
+Move the contacts data fetch from `ContactSearchableDropdown` (which fires 4 separate fetches) into `StakeholdersSection` state. Pass contacts down to the inline add-dropdown. This eliminates 3 redundant network requests.
 
-The fix involves updating the UI components to use higher z-index values when rendering inside dialogs. We have two options:
+#### 2. Build an inline `StakeholderAddDropdown` sub-component
 
-**Option A (Recommended): Update base UI components**
-- Update `SelectContent` to use `z-[100]` instead of `z-50`
-- Update `PopoverContent` to use `z-[100]` instead of `z-50`
-- This fixes the issue globally for all modals
+A small, self-contained Popover-based search dropdown defined inside `DealExpandedPanel.tsx`:
+- Trigger: a `+` icon button (no text, compact)
+- `PopoverContent` width: fixed pixel value derived from `ref` measurement of the row container × 0.40, so it's always exactly 40% of the available row width
+- Uses `Command` / `CommandInput` / `CommandList` for search (same pattern as `ContactSearchableDropdown`)
+- Accepts `contacts` and `excludeIds` (already-added contacts for this role) as props — filters them out
+- On select: calls `onAdd(role, contact)` and closes
 
-**Option B: Add `pointer-events-auto` and higher z-index per usage**
-- Add `className="z-[100] pointer-events-auto"` to each SelectContent/PopoverContent inside dialogs
-- More targeted but requires changes in many files
+#### 3. Rewrite the role row layout
 
-## Implementation Steps
+Each role cell uses a strict 4-column flex layout:
 
-### Step 1: Update Select Component (src/components/ui/select.tsx)
-- Change `SelectContent` z-index from `z-50` to `z-[100]`
-- Line 76: Update the className from `relative z-50` to `relative z-[100]`
+```tsx
+<div className="flex items-start">
+  {/* 14% — Label */}
+  <span style={{ width: '14%' }} className="shrink-0 ...">Budget Owner :</span>
 
-### Step 2: Update Popover Component (src/components/ui/popover.tsx)
-- Change `PopoverContent` z-index from `z-50` to `z-[100]`
-- Line 20: Update the className from `z-50` to `z-[100]`
+  {/* 30% — Contact names stacked vertically */}
+  <div style={{ width: '30%' }} className="flex flex-col gap-0.5 min-w-0">
+    {roleStakeholders.map(sh => (
+      <div key={sh.id} className="flex items-center">
+        <span className="truncate text-[10px]">{contactNames[sh.contact_id]}</span>
+      </div>
+    ))}
+  </div>
 
-### Step 3: Update Tooltip Component (src/components/ui/tooltip.tsx)
-- Verify and update TooltipContent z-index if needed (should be `z-[100]`)
-- This ensures tooltips also appear above dialogs
+  {/* 3% — Info buttons stacked vertically (one per contact) */}
+  <div style={{ width: '3%' }} className="flex flex-col gap-0.5 items-center">
+    {roleStakeholders.map(sh => (
+      <InfoPopover key={sh.id} stakeholder={sh} ... />
+    ))}
+  </div>
 
-### Step 4: Verify Calendar interactions
-- The Calendar component already has `pointer-events-auto` class in TaskModal.tsx (line 641)
-- Verify this pattern is applied in all modal calendar usages
+  {/* 3% — Single + Add button at the top */}
+  <div style={{ width: '3%' }} className="flex items-start justify-center">
+    <StakeholderAddDropdown ... />
+  </div>
+</div>
+```
 
-## Testing Checklist
+#### 4. Remove X (remove contact) from inline view
 
-After implementation, test these scenarios across ALL modules:
+The `X` remove button currently sits inside the contact chip. Per the reference image there is no `X` visible — removal can be accessed via the info popover or kept as a hover-only state to keep the layout clean. We'll add it as a hover-only element inside the contact name area.
 
-- [ ] Task Modal (Accounts section):
-  - [ ] Module selector dropdown works
-  - [ ] Account selector dropdown works
-  - [ ] Assigned To dropdown works
-  - [ ] Due Date calendar picker works
-  - [ ] Time selector works
-  - [ ] Priority dropdown works
-  - [ ] Status dropdown works
+#### 5. Grid layout stays `grid-cols-2`
 
-- [ ] Account Modal:
-  - [ ] Region/Country dropdowns work
-  - [ ] Status dropdown works
-  - [ ] Industry dropdown works
+The outer `grid grid-cols-2 gap-x-6 gap-y-2` is kept, giving each role cell exactly 50% width to work within.
 
-- [ ] Contact Modal:
-  - [ ] Account selector dropdown works
-  - [ ] Contact Source dropdown works
+### Technical Details
 
-- [ ] Lead Modal:
-  - [ ] Account selector dropdown works
-  - [ ] Status/Source dropdowns work
-
-- [ ] Meeting Modal:
-  - [ ] Date/Time pickers work
-  - [ ] Timezone selector works
-  - [ ] Contact/Lead selectors work
-
-- [ ] Deal Form:
-  - [ ] All stage-related dropdowns work
-  - [ ] Date pickers work
-
-## Critical Files for Implementation
-
-- `src/components/ui/select.tsx` - Core Select component z-index fix
-- `src/components/ui/popover.tsx` - Core Popover component z-index fix  
-- `src/components/ui/tooltip.tsx` - Tooltip z-index verification
-- `src/components/tasks/TaskModal.tsx` - Primary affected component to test
-- `src/components/ui/dialog.tsx` - Reference for understanding the z-index structure
+- **Width percentages via `style` prop** — Tailwind percentage classes like `w-[14%]` work fine here but inline `style={{ width: '14%' }}` is more reliable inside flex containers. We'll use Tailwind `w-[14%]`, `w-[30%]`, `w-[3%]` classes which are JIT-safe.
+- **Dropdown width**: The `PopoverContent` for the add-dropdown will use `style={{ width: '200px' }}` as a sensible fixed minimum, plus `align="start"` so it doesn't overflow. Alternatively we measure the grid container via `useRef` — we'll use a ref for accuracy.
+- **Single contacts fetch**: Add `contacts` state + `loading` state to `StakeholdersSection`; pass the array to each `StakeholderAddDropdown`; each dropdown filters out contacts already in that role using `excludeIds`.
+- **Info popover**: Keep existing Popover note-editing behavior, just relocated to the 3% column, stacked per contact.
+- **X remove**: Show on hover of the contact name row using `group/row` and `group-hover/row:opacity-100 opacity-0` pattern.
