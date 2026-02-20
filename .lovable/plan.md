@@ -1,86 +1,66 @@
 
-## Stakeholders Section – Full Layout Redesign
+
+## Fix Stakeholders Section Layout
+
+### Current Issues
+- Label width is set to 38% which is too wide, pushing content to the right
+- Text is too small (10px) and hard to read
+- Spacing between elements is cramped
+- The info and + buttons are tiny (18px columns) and hard to click
+- No visual separation between the two columns
+- Empty state looks awkward with invisible spacer divs
+- Dropdown may get clipped or hidden behind other elements
 
 ### Reference Image Analysis
+The uploaded image shows a clean, well-spaced layout:
+- Labels like "Budget Owner :", "Champion :" are left-aligned with readable size
+- Contact names ("Deepak") are clearly visible with good spacing
+- Info (i) and + buttons are well-spaced and easily clickable
+- Two columns with clear visual separation
 
-The image defines a precise column layout for each of the 2 stakeholder columns (50% of total width each):
+### Changes (File: `src/components/DealExpandedPanel.tsx`)
 
-```text
-|-- 14% Label --|-- 30% Contact Name(s) --|-- 3% info --|-- 3% + --|
-```
+#### 1. Fix column proportions
+- Change label width from `38%` to `28%` -- labels don't need that much space
+- Give contact names more room with `flex-1`
+- Increase info and + button columns from `18px` to `24px` for better clickability
 
-- **Label** (14%): "Budget Owner", "Champion", etc. — fixed, vertically top-aligned
-- **Contact Names** (30%): stacked vertically, one per row, each truncated
-- **Info button** (3%): one `i` button per contact, stacked alongside the contact name — appears/disappears per row
-- **+ Add button** (3%): a single `+` icon button, appears on the **first row** only (top-right), opens a dropdown of 40% width
+#### 2. Increase text size and spacing
+- Bump label text from `text-[10px]` to `text-xs` (12px)
+- Bump contact name text from `text-[10px]` to `text-xs`
+- Increase row height from `h-4` to `h-5` for better readability
+- Increase gap between rows from `gap-0.5` to `gap-1`
+- Increase grid gap from `gap-y-1` to `gap-y-2` for breathing room between role rows
 
-Key observations:
-- The `+` button does **NOT** shift for each contact — it's fixed at top-right of the role block
-- Each contact row is: `[contact name (30%)] [i button (3%)]`
-- The `+` column (3%) is separate and sits on the right, aligned to the top
-- When no contacts: label + empty space + `+` button
+#### 3. Improve visual styling
+- Add subtle bottom border to each role row for visual separation
+- Style labels with consistent color and colon formatting
+- Add a slight left padding to contact names for alignment
 
-### Implementation Plan
+#### 4. Ensure dropdown visibility
+- Add `sideOffset={4}` to the StakeholderAddDropdown's PopoverContent
+- Set `avoidCollisions={true}` (currently `false`) so the dropdown repositions if near edges
+- Ensure z-index `z-[200]` is maintained
+- Set a minimum width of `200px` on the dropdown so it's always usable regardless of cell size
 
-**File: `src/components/DealExpandedPanel.tsx`** — rewrite `StakeholdersSection` (lines 257–310)
+#### 5. Improve empty state
+- Show a subtle "No contact" placeholder text instead of an invisible spacer div
+- Style it as muted italic text
 
-#### 1. Lift contacts fetch into `StakeholdersSection` (single fetch, shared across all 4 roles)
-
-Move the contacts data fetch from `ContactSearchableDropdown` (which fires 4 separate fetches) into `StakeholdersSection` state. Pass contacts down to the inline add-dropdown. This eliminates 3 redundant network requests.
-
-#### 2. Build an inline `StakeholderAddDropdown` sub-component
-
-A small, self-contained Popover-based search dropdown defined inside `DealExpandedPanel.tsx`:
-- Trigger: a `+` icon button (no text, compact)
-- `PopoverContent` width: fixed pixel value derived from `ref` measurement of the row container × 0.40, so it's always exactly 40% of the available row width
-- Uses `Command` / `CommandInput` / `CommandList` for search (same pattern as `ContactSearchableDropdown`)
-- Accepts `contacts` and `excludeIds` (already-added contacts for this role) as props — filters them out
-- On select: calls `onAdd(role, contact)` and closes
-
-#### 3. Rewrite the role row layout
-
-Each role cell uses a strict 4-column flex layout:
-
-```tsx
-<div className="flex items-start">
-  {/* 14% — Label */}
-  <span style={{ width: '14%' }} className="shrink-0 ...">Budget Owner :</span>
-
-  {/* 30% — Contact names stacked vertically */}
-  <div style={{ width: '30%' }} className="flex flex-col gap-0.5 min-w-0">
-    {roleStakeholders.map(sh => (
-      <div key={sh.id} className="flex items-center">
-        <span className="truncate text-[10px]">{contactNames[sh.contact_id]}</span>
-      </div>
-    ))}
-  </div>
-
-  {/* 3% — Info buttons stacked vertically (one per contact) */}
-  <div style={{ width: '3%' }} className="flex flex-col gap-0.5 items-center">
-    {roleStakeholders.map(sh => (
-      <InfoPopover key={sh.id} stakeholder={sh} ... />
-    ))}
-  </div>
-
-  {/* 3% — Single + Add button at the top */}
-  <div style={{ width: '3%' }} className="flex items-start justify-center">
-    <StakeholderAddDropdown ... />
-  </div>
-</div>
-```
-
-#### 4. Remove X (remove contact) from inline view
-
-The `X` remove button currently sits inside the contact chip. Per the reference image there is no `X` visible — removal can be accessed via the info popover or kept as a hover-only state to keep the layout clean. We'll add it as a hover-only element inside the contact name area.
-
-#### 5. Grid layout stays `grid-cols-2`
-
-The outer `grid grid-cols-2 gap-x-6 gap-y-2` is kept, giving each role cell exactly 50% width to work within.
+#### 6. Button improvements
+- Make the + button slightly larger and add a subtle hover background
+- Make info button consistently visible (not opacity-50) but muted color, with hover highlight
+- Increase hit area on both buttons
 
 ### Technical Details
 
-- **Width percentages via `style` prop** — Tailwind percentage classes like `w-[14%]` work fine here but inline `style={{ width: '14%' }}` is more reliable inside flex containers. We'll use Tailwind `w-[14%]`, `w-[30%]`, `w-[3%]` classes which are JIT-safe.
-- **Dropdown width**: The `PopoverContent` for the add-dropdown will use `style={{ width: '200px' }}` as a sensible fixed minimum, plus `align="start"` so it doesn't overflow. Alternatively we measure the grid container via `useRef` — we'll use a ref for accuracy.
-- **Single contacts fetch**: Add `contacts` state + `loading` state to `StakeholdersSection`; pass the array to each `StakeholderAddDropdown`; each dropdown filters out contacts already in that role using `excludeIds`.
-- **Info popover**: Keep existing Popover note-editing behavior, just relocated to the 3% column, stacked per contact.
-- **X remove**: Show on hover of the contact name row using `group/row` and `group-hover/row:opacity-100 opacity-0` pattern.
+All changes are confined to `src/components/DealExpandedPanel.tsx`, specifically the `StakeholdersSection` component (lines ~370-482) and the `StakeholderAddDropdown` component (lines ~220-294).
+
+Key style changes:
+- Label: `text-xs font-medium text-muted-foreground` with `width: 28%`
+- Contact row: `h-5` with `text-xs` text, `gap-1` between rows
+- Grid: `gap-x-6 gap-y-2.5` for cleaner column/row spacing
+- Info/+ buttons: `w-6 h-5` with proper hover states
+- Dropdown: `avoidCollisions={true}`, min-width 200px, `z-[200]`
+- Empty state: `<span className="text-xs text-muted-foreground/50 italic">--</span>`
+
