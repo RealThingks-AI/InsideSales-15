@@ -66,6 +66,7 @@ export function CampaignAnalytics({ campaignId }: Props) {
     { name: 'Responded', value: responded },
     { name: 'Qualified', value: qualified },
     { name: 'Deal Created', value: dealsCreated },
+    { name: 'Deal Won', value: dealsWon },
   ];
 
   // Communication type breakdown
