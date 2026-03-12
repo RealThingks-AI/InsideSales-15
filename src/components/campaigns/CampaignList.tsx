@@ -7,6 +7,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCampaignAggregates } from '@/hooks/useCampaigns';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import type { Campaign } from '@/types/campaign';
 import { format } from 'date-fns';
 
@@ -31,6 +33,39 @@ export function CampaignList({ campaigns, loading, onSelect, onEdit, onDelete, s
   const aggregatesQuery = useCampaignAggregates();
   const aggregates = aggregatesQuery.data || {};
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Fetch owner names
+  const ownerIds = [...new Set(campaigns.map(c => c.owner).filter(Boolean))] as string[];
+  const ownersQuery = useQuery({
+    queryKey: ['campaign_owners', ownerIds],
+    queryFn: async () => {
+      if (!ownerIds.length) return {};
+      const { data } = await supabase.from('profiles').select('id, full_name').in('id', ownerIds);
+      const map: Record<string, string> = {};
+      (data || []).forEach(p => { map[p.id] = p.full_name || 'Unnamed'; });
+      return map;
+    },
+    enabled: ownerIds.length > 0,
+  });
+  const ownerNames = ownersQuery.data || {};
+
+  // Fetch deals won per campaign
+  const dealsWonQuery = useQuery({
+    queryKey: ['campaign_deals_won'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('deals')
+        .select('campaign_id')
+        .not('campaign_id', 'is', null)
+        .eq('stage', 'Won');
+      const counts: Record<string, number> = {};
+      (data || []).forEach((d: any) => {
+        counts[d.campaign_id] = (counts[d.campaign_id] || 0) + 1;
+      });
+      return counts;
+    },
+  });
+  const dealsWon = dealsWonQuery.data || {};
 
   if (loading) {
     return (
@@ -57,14 +92,15 @@ export function CampaignList({ campaigns, loading, onSelect, onEdit, onDelete, s
         <TableHeader>
           <TableRow>
             <TableHead>Campaign Name</TableHead>
+            <TableHead>Owner</TableHead>
             <TableHead>Type</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Start Date</TableHead>
             <TableHead>End Date</TableHead>
-            <TableHead>Region</TableHead>
             <TableHead className="text-center">Accounts</TableHead>
             <TableHead className="text-center">Contacts</TableHead>
             <TableHead className="text-center">Deals</TableHead>
+            <TableHead className="text-center">Won</TableHead>
             <TableHead className="w-10"></TableHead>
           </TableRow>
         </TableHeader>
@@ -78,6 +114,7 @@ export function CampaignList({ campaigns, loading, onSelect, onEdit, onDelete, s
                 onClick={() => onSelect(c)}
               >
                 <TableCell className="font-medium">{c.campaign_name}</TableCell>
+                <TableCell className="text-sm">{c.owner ? (ownerNames[c.owner] || '—') : '—'}</TableCell>
                 <TableCell className="text-sm">{c.campaign_type || '—'}</TableCell>
                 <TableCell>
                   <Badge variant="outline" className={statusColors[c.status] || ''}>
@@ -86,10 +123,16 @@ export function CampaignList({ campaigns, loading, onSelect, onEdit, onDelete, s
                 </TableCell>
                 <TableCell className="text-sm">{c.start_date ? format(new Date(c.start_date), 'dd MMM yyyy') : '—'}</TableCell>
                 <TableCell className="text-sm">{c.end_date ? format(new Date(c.end_date), 'dd MMM yyyy') : '—'}</TableCell>
-                <TableCell className="text-sm">{c.region || '—'}</TableCell>
                 <TableCell className="text-center text-sm">{agg?.accounts ?? 0}</TableCell>
                 <TableCell className="text-center text-sm">{agg?.contacts ?? 0}</TableCell>
                 <TableCell className="text-center text-sm">{agg?.deals ?? 0}</TableCell>
+                <TableCell className="text-center text-sm">
+                  {dealsWon[c.id] ? (
+                    <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                      {dealsWon[c.id]}
+                    </Badge>
+                  ) : '0'}
+                </TableCell>
                 <TableCell>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
