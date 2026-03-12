@@ -77,6 +77,7 @@ export function CampaignOutreachTab({ campaignId }: Props) {
           <TableHeader>
             <TableRow>
               <TableHead>Type</TableHead>
+              <TableHead>Contact</TableHead>
               <TableHead>Subject</TableHead>
               <TableHead>Status/Outcome</TableHead>
               <TableHead>Date</TableHead>
@@ -95,6 +96,7 @@ export function CampaignOutreachTab({ campaignId }: Props) {
                       {c.communication_type}
                     </div>
                   </TableCell>
+                  <TableCell className="text-sm">{(c as any).contacts?.contact_name || '—'}</TableCell>
                   <TableCell className="text-sm">{c.subject || '—'}</TableCell>
                   <TableCell className="text-sm">{statusText}</TableCell>
                   <TableCell className="text-sm">{format(new Date(c.communication_date), 'dd MMM yyyy')}</TableCell>

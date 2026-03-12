@@ -10,6 +10,7 @@ import { CampaignEmailTemplatesTab } from './CampaignEmailTemplatesTab';
 import { CampaignPhoneScriptsTab } from './CampaignPhoneScriptsTab';
 import { CampaignMaterialsTab } from './CampaignMaterialsTab';
 import { CampaignAnalytics } from './CampaignAnalytics';
+import { CampaignActionItemsTab } from './CampaignActionItemsTab';
 import type { Campaign } from '@/types/campaign';
 import { format } from 'date-fns';
 
@@ -48,6 +49,7 @@ export function CampaignDetailPanel({ campaign, onClose, onEdit }: Props) {
           <TabsTrigger value="templates">Templates</TabsTrigger>
           <TabsTrigger value="scripts">Scripts</TabsTrigger>
           <TabsTrigger value="materials">Materials</TabsTrigger>
+          <TabsTrigger value="tasks">Tasks</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
 
@@ -115,6 +117,10 @@ export function CampaignDetailPanel({ campaign, onClose, onEdit }: Props) {
 
           <TabsContent value="materials" className="mt-0">
             <CampaignMaterialsTab campaignId={campaign.id} />
+          </TabsContent>
+
+          <TabsContent value="tasks" className="mt-0">
+            <CampaignActionItemsTab campaignId={campaign.id} />
           </TabsContent>
 
           <TabsContent value="analytics" className="mt-0">

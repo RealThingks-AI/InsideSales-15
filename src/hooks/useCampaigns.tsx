@@ -205,7 +205,7 @@ export function useCampaignCommunications(campaignId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('campaign_communications')
-        .select('*')
+        .select('*, contacts(contact_name)')
         .eq('campaign_id', campaignId!)
         .order('communication_date', { ascending: false });
       if (error) throw error;

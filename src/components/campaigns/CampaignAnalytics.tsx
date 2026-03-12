@@ -1,6 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useCampaignAccounts, useCampaignContacts, useCampaignCommunications } from '@/hooks/useCampaigns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Building2, Users, Mail, Phone, Linkedin, BarChart3 } from 'lucide-react';
+import { Building2, Users, Mail, Phone, Linkedin, BarChart3, Trophy, Calendar } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 interface Props {
@@ -18,11 +20,28 @@ export function CampaignAnalytics({ campaignId }: Props) {
   const contactsData = contacts.query.data || [];
   const commsData = comms.query.data || [];
 
+  // Query deals linked to this campaign
+  const dealsQuery = useQuery({
+    queryKey: ['campaign_deals', campaignId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('deals')
+        .select('id, stage')
+        .eq('campaign_id', campaignId);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const dealsData = dealsQuery.data || [];
+
   const emailsSent = commsData.filter(c => c.communication_type === 'Email').length;
   const callsMade = commsData.filter(c => c.communication_type === 'Phone').length;
   const linkedinSent = commsData.filter(c => c.communication_type === 'LinkedIn').length;
+  const meetingsScheduled = commsData.filter(c => c.communication_type === 'Meeting').length;
   const responded = contactsData.filter(c => c.stage === 'Responded' || c.stage === 'Qualified').length;
-  const dealsCreated = accountsData.filter(a => a.status === 'Deal Created').length;
+  const dealsCreated = dealsData.length;
+  const dealsWon = dealsData.filter(d => d.stage === 'Won').length;
 
   const stats = [
     { label: 'Accounts Targeted', value: accountsData.length, icon: Building2 },
@@ -30,7 +49,10 @@ export function CampaignAnalytics({ campaignId }: Props) {
     { label: 'Emails Sent', value: emailsSent, icon: Mail },
     { label: 'Calls Made', value: callsMade, icon: Phone },
     { label: 'LinkedIn Messages', value: linkedinSent, icon: Linkedin },
+    { label: 'Meetings Scheduled', value: meetingsScheduled, icon: Calendar },
     { label: 'Responses', value: responded, icon: BarChart3 },
+    { label: 'Deals Created', value: dealsCreated, icon: BarChart3 },
+    { label: 'Deals Won', value: dealsWon, icon: Trophy },
   ];
 
   const responseRate = contactsData.length > 0 ? ((responded / contactsData.length) * 100).toFixed(1) : '0';
@@ -44,6 +66,7 @@ export function CampaignAnalytics({ campaignId }: Props) {
     { name: 'Responded', value: responded },
     { name: 'Qualified', value: qualified },
     { name: 'Deal Created', value: dealsCreated },
+    { name: 'Deal Won', value: dealsWon },
   ];
 
   // Communication type breakdown
@@ -54,7 +77,7 @@ export function CampaignAnalytics({ campaignId }: Props) {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-3">
         {stats.map(s => (
           <Card key={s.label} className="border-border">
             <CardContent className="p-3">
@@ -117,6 +140,14 @@ export function CampaignAnalytics({ campaignId }: Props) {
           <div className="flex justify-between">
             <span className="text-muted-foreground">Deals Created</span>
             <span className="font-medium text-foreground">{dealsCreated}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Deals Won</span>
+            <span className="font-medium text-foreground">{dealsWon}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Meetings Scheduled</span>
+            <span className="font-medium text-foreground">{meetingsScheduled}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Total Communications</span>
