@@ -20,11 +20,28 @@ export function CampaignAnalytics({ campaignId }: Props) {
   const contactsData = contacts.query.data || [];
   const commsData = comms.query.data || [];
 
+  // Query deals linked to this campaign
+  const dealsQuery = useQuery({
+    queryKey: ['campaign_deals', campaignId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('deals')
+        .select('id, stage')
+        .eq('campaign_id', campaignId);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const dealsData = dealsQuery.data || [];
+
   const emailsSent = commsData.filter(c => c.communication_type === 'Email').length;
   const callsMade = commsData.filter(c => c.communication_type === 'Phone').length;
   const linkedinSent = commsData.filter(c => c.communication_type === 'LinkedIn').length;
+  const meetingsScheduled = commsData.filter(c => c.communication_type === 'Meeting').length;
   const responded = contactsData.filter(c => c.stage === 'Responded' || c.stage === 'Qualified').length;
-  const dealsCreated = accountsData.filter(a => a.status === 'Deal Created').length;
+  const dealsCreated = dealsData.length;
+  const dealsWon = dealsData.filter(d => d.stage === 'Won').length;
 
   const stats = [
     { label: 'Accounts Targeted', value: accountsData.length, icon: Building2 },
@@ -32,7 +49,10 @@ export function CampaignAnalytics({ campaignId }: Props) {
     { label: 'Emails Sent', value: emailsSent, icon: Mail },
     { label: 'Calls Made', value: callsMade, icon: Phone },
     { label: 'LinkedIn Messages', value: linkedinSent, icon: Linkedin },
+    { label: 'Meetings Scheduled', value: meetingsScheduled, icon: Calendar },
     { label: 'Responses', value: responded, icon: BarChart3 },
+    { label: 'Deals Created', value: dealsCreated, icon: BarChart3 },
+    { label: 'Deals Won', value: dealsWon, icon: Trophy },
   ];
 
   const responseRate = contactsData.length > 0 ? ((responded / contactsData.length) * 100).toFixed(1) : '0';
