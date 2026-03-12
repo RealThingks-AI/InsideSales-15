@@ -1,6 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useCampaignAccounts, useCampaignContacts, useCampaignCommunications } from '@/hooks/useCampaigns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Building2, Users, Mail, Phone, Linkedin, BarChart3 } from 'lucide-react';
+import { Building2, Users, Mail, Phone, Linkedin, BarChart3, Trophy, Calendar } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 interface Props {
