@@ -1,66 +1,91 @@
 
 
-## Fix Stakeholders Section Layout
+## Fix Note Editor Bullet Point & Stakeholders Layout Issues
 
-### Current Issues
-- Label width is set to 38% which is too wide, pushing content to the right
-- Text is too small (10px) and hard to read
-- Spacing between elements is cramped
-- The info and + buttons are tiny (18px columns) and hard to click
-- No visual separation between the two columns
-- Empty state looks awkward with invisible spacer divs
-- Dropdown may get clipped or hidden behind other elements
+### Issues Found
 
-### Reference Image Analysis
-The uploaded image shows a clean, well-spaced layout:
-- Labels like "Budget Owner :", "Champion :" are left-aligned with readable size
-- Contact names ("Deepak") are clearly visible with good spacing
-- Info (i) and + buttons are well-spaced and easily clickable
-- Two columns with clear visual separation
+1. **Bullet point moves when typing**: `autoFocus` on the Textarea (line 633) places the cursor at position 0 (before `"• "`), so typing inserts text before the bullet instead of after it.
 
-### Changes (File: `src/components/DealExpandedPanel.tsx`)
+2. **Notes panel lacks proper scrollbar**: The notes summary panel (line 580-679) has a `max-h-[280px]` on the inner div but the outer wrapper has no scroll constraint, so it still pushes content.
 
-#### 1. Fix column proportions
-- Change label width from `38%` to `28%` -- labels don't need that much space
-- Give contact names more room with `flex-1`
-- Increase info and + button columns from `18px` to `24px` for better clickability
+3. **Stakeholders section grows unbounded**: The `StakeholdersSection` component has no max-height. When the Notes panel is open with many notes, it consumes all vertical space, squishing the Updates and Action Items sections to near-zero height.
 
-#### 2. Increase text size and spacing
-- Bump label text from `text-[10px]` to `text-xs` (12px)
-- Bump contact name text from `text-[10px]` to `text-xs`
-- Increase row height from `h-4` to `h-5` for better readability
-- Increase gap between rows from `gap-0.5` to `gap-1`
-- Increase grid gap from `gap-y-1` to `gap-y-2` for breathing room between role rows
+### Changes (single file: `src/components/DealExpandedPanel.tsx`)
 
-#### 3. Improve visual styling
-- Add subtle bottom border to each role row for visual separation
-- Style labels with consistent color and colon formatting
-- Add a slight left padding to contact names for alignment
+#### Fix 1: Bullet cursor positioning (line 628-634)
 
-#### 4. Ensure dropdown visibility
-- Add `sideOffset={4}` to the StakeholderAddDropdown's PopoverContent
-- Set `avoidCollisions={true}` (currently `false`) so the dropdown repositions if near edges
-- Ensure z-index `z-[200]` is maintained
-- Set a minimum width of `200px` on the dropdown so it's always usable regardless of cell size
+Replace `autoFocus` on the Textarea with a `ref` callback that focuses the element AND places the cursor at the end of the text (after `"• "`):
 
-#### 5. Improve empty state
-- Show a subtle "No contact" placeholder text instead of an invisible spacer div
-- Style it as muted italic text
+```tsx
+<Textarea
+  value={noteText}
+  onChange={(e) => setNoteText(e.target.value)}
+  onKeyDown={handleNoteKeyDown}
+  className="min-h-[100px] text-xs resize-none"
+  ref={(el) => {
+    if (el) {
+      el.focus();
+      const len = el.value.length;
+      el.selectionStart = len;
+      el.selectionEnd = len;
+    }
+  }}
+/>
+```
 
-#### 6. Button improvements
-- Make the + button slightly larger and add a subtle hover background
-- Make info button consistently visible (not opacity-50) but muted color, with hover highlight
-- Increase hit area on both buttons
+#### Fix 2: Constrain Stakeholders section height
 
-### Technical Details
+Wrap the StakeholdersSection output in a container with `max-h` and `overflow-y-auto` so it scrolls when content is large. Change the outer div (line 462) from:
 
-All changes are confined to `src/components/DealExpandedPanel.tsx`, specifically the `StakeholdersSection` component (lines ~370-482) and the `StakeholderAddDropdown` component (lines ~220-294).
+```tsx
+<div className="px-3 pt-1.5 pb-1">
+```
 
-Key style changes:
-- Label: `text-xs font-medium text-muted-foreground` with `width: 28%`
-- Contact row: `h-5` with `text-xs` text, `gap-1` between rows
-- Grid: `gap-x-6 gap-y-2.5` for cleaner column/row spacing
-- Info/+ buttons: `w-6 h-5` with proper hover states
-- Dropdown: `avoidCollisions={true}`, min-width 200px, `z-[200]`
-- Empty state: `<span className="text-xs text-muted-foreground/50 italic">--</span>`
+to:
+
+```tsx
+<div className="px-3 pt-1.5 pb-1 max-h-[45%] overflow-y-auto shrink-0">
+```
+
+However, since this is not inside a flex parent that uses percentage heights well, a better approach is to change the parent layout. The parent (line 1182) is:
+
+```tsx
+<div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-1">
+```
+
+The fix: Make the StakeholdersSection a flex item that can shrink, and give it a max-height so it doesn't dominate. Change line 1184 from:
+
+```tsx
+<StakeholdersSection deal={deal} queryClient={queryClient} />
+```
+
+to wrap it in a constrained container:
+
+```tsx
+<div className="shrink-0 max-h-[40%] overflow-y-auto">
+  <StakeholdersSection deal={deal} queryClient={queryClient} />
+</div>
+```
+
+This ensures:
+- Stakeholders section gets at most 40% of the panel height
+- When content exceeds that, a scrollbar appears
+- Updates and Action Items always get their fair share of space
+
+#### Fix 3: Ensure notes panel scrolls properly
+
+The notes summary panel (line 596) already has `max-h-[280px] overflow-y-auto`, but when inside the constrained container from Fix 2, this works correctly. No additional change needed here -- the outer scroll from Fix 2 handles it.
+
+### Summary
+
+| Change | Line(s) | Description |
+|--------|---------|-------------|
+| Replace `autoFocus` with ref callback | 628-634 | Cursor placed after bullet on open |
+| Wrap StakeholdersSection in scrollable container | 1184 | Max 40% height with scrollbar |
+
+### Technical Notes
+
+- The ref callback fires on every render, but since `el.focus()` is idempotent when already focused, this is harmless
+- The `max-h-[40%]` works because the parent has `flex-1 min-h-0` which resolves to an actual pixel height
+- Updates and Action Items sections keep their `flex-1 min-h-0` with `h-[220px]`, ensuring they share remaining space equally
 

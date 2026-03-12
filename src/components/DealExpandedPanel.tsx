@@ -18,8 +18,8 @@ import {
   User,
   MoreHorizontal,
   Handshake,
-  Info,
-  AlertTriangle } from
+  AlertTriangle,
+  Trash2 } from
 "lucide-react";
 import {
   AlertDialog,
@@ -29,8 +29,8 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  AlertDialogTitle } from
+"@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -59,6 +59,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useAuth } from "@/hooks/useAuth";
+import { useCRUDAudit } from "@/hooks/useCRUDAudit";
 import { Contact } from "@/components/ContactSearchableDropdown";
 import { Users } from "lucide-react";
 
@@ -201,29 +202,32 @@ interface DealStakeholder {
 }
 
 const STAKEHOLDER_ROLES = [
-  { role: "budget_owner", label: "Budget Owner" },
-  { role: "champion", label: "Champion" },
-  { role: "influencer", label: "Influencer" },
-  { role: "objector", label: "Objector" },
-] as const;
+{ role: "budget_owner", label: "Budget Owner", color: "bg-blue-400", borderColor: "border-l-blue-400", badgeBg: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300", nameColor: "text-blue-700 dark:text-blue-300" },
+{ role: "champion", label: "Champion", color: "bg-green-400", borderColor: "border-l-green-400", badgeBg: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300", nameColor: "text-green-700 dark:text-green-300" },
+{ role: "influencer", label: "Influencer", color: "bg-amber-400", borderColor: "border-l-amber-400", badgeBg: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", nameColor: "text-amber-700 dark:text-amber-300" },
+{ role: "objector", label: "Objector", color: "bg-red-400", borderColor: "border-l-red-400", badgeBg: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300", nameColor: "text-red-700 dark:text-red-300" }] as
+const;
 
 // ── Inline add-dropdown for a single role ───────────────────────────────────
 interface StakeholderAddDropdownProps {
   contacts: Contact[];
   excludeIds: string[];
   onAdd: (contact: Contact) => void;
+  onCreateContact: (name: string) => Promise<Contact | null>;
   cellRef: React.RefObject<HTMLDivElement>;
 }
 
 const normalize = (s: string) =>
-  s.toLowerCase().replace(/[-_.,()]/g, " ").replace(/\s+/g, " ").trim();
+s.toLowerCase().replace(/[-_.,()]/g, " ").replace(/\s+/g, " ").trim();
 
-const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, cellRef }: StakeholderAddDropdownProps) => {
+const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, onCreateContact, cellRef }: StakeholderAddDropdownProps) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [dropdownWidth, setDropdownWidth] = useState(220);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newContactName, setNewContactName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
-  // Measure the cell container (50% column) to derive 40% width for the popover
   const handleOpenChange = (next: boolean) => {
     if (next && cellRef.current) {
       setDropdownWidth(Math.round(cellRef.current.offsetWidth * 0.40));
@@ -233,26 +237,39 @@ const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, cellRef }: Stakeh
   };
 
   const filtered = useMemo(() => {
-    const available = contacts.filter(c => !excludeIds.includes(c.id));
+    const available = contacts.filter((c) => !excludeIds.includes(c.id));
     if (!search) return available.slice(0, 80);
     const words = normalize(search).split(" ").filter(Boolean);
-    return available
-      .filter(c => {
-        const combined = normalize(`${c.contact_name || ""} ${c.company_name || ""} ${c.position || ""}`);
-        return words.every(w => combined.includes(w));
-      })
-      .slice(0, 80);
+    return available.
+    filter((c) => {
+      const combined = normalize(`${c.contact_name || ""} ${c.company_name || ""} ${c.position || ""}`);
+      return words.every((w) => combined.includes(w));
+    }).
+    slice(0, 80);
   }, [contacts, excludeIds, search]);
 
+  const handleCreateAndAdd = async () => {
+    if (!newContactName.trim()) return;
+    setIsCreating(true);
+    const contact = await onCreateContact(newContactName.trim());
+    setIsCreating(false);
+    if (contact) {
+      onAdd(contact);
+      setShowCreateDialog(false);
+      setOpen(false);
+      setSearch("");
+      setNewContactName("");
+    }
+  };
 
   return (
+    <>
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           className="flex items-center justify-center w-6 h-5 rounded hover:bg-accent/80 text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          title="Add contact"
-        >
-          <Plus className="h-3.5 w-3.5" />
+          title="Add contact">
+          <Plus className="h-4 w-4" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -262,64 +279,97 @@ const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, cellRef }: Stakeh
         side="bottom"
         sideOffset={4}
         avoidCollisions={true}
-        onWheel={e => e.stopPropagation()}
-      >
+        onWheel={(e) => e.stopPropagation()}>
         <Command shouldFilter={false}>
           <CommandInput
             placeholder="Search contacts…"
             value={search}
             onValueChange={setSearch}
-            className="h-8 text-xs"
-          />
+            className="h-8 text-xs" />
           <CommandList
             className="max-h-[180px] overflow-y-auto"
-            onWheel={e => { e.stopPropagation(); (e.currentTarget as HTMLElement).scrollTop += e.deltaY; }}
-          >
-            {filtered.length === 0 ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">No contacts found.</div>
-            ) : (
-              <CommandGroup>
-                {filtered.map(c => (
-                  <CommandItem
-                    key={c.id}
-                    value={c.contact_name}
-                    onSelect={() => { onAdd(c); setOpen(false); setSearch(""); }}
-                    className="cursor-pointer py-1 px-2"
-                  >
+            onWheel={(e) => {e.stopPropagation();(e.currentTarget as HTMLElement).scrollTop += e.deltaY;}}>
+            {filtered.length === 0 ?
+            <div className="py-3 text-center space-y-2">
+              <p className="text-xs text-muted-foreground">No contacts found.</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => {
+                  setNewContactName(search);
+                  setShowCreateDialog(true);
+                  setOpen(false);
+                }}>
+                <Plus className="h-3 w-3" />
+                Create "{search}"
+              </Button>
+            </div> :
+            <CommandGroup>
+                {filtered.map((c) =>
+              <CommandItem
+                key={c.id}
+                value={c.contact_name}
+                onSelect={() => {onAdd(c);setOpen(false);setSearch("");}}
+                className="cursor-pointer py-1 px-2">
                     <div className="flex flex-col min-w-0">
                       <span className="text-xs font-medium truncate">{c.contact_name}</span>
-                      {(c.company_name || c.position) && (
-                        <span className="text-[10px] text-muted-foreground truncate">
+                      {(c.company_name || c.position) &&
+                  <span className="text-[10px] text-muted-foreground truncate">
                           {[c.company_name, c.position].filter(Boolean).join(" • ")}
                         </span>
-                      )}
+                  }
                     </div>
                   </CommandItem>
-                ))}
+              )}
               </CommandGroup>
-            )}
+            }
           </CommandList>
         </Command>
       </PopoverContent>
     </Popover>
-  );
+
+    {/* Create New Contact Dialog */}
+    <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+      <DialogContent className="sm:max-w-[360px]">
+        <DialogHeader>
+          <DialogTitle className="text-sm">Create New Contact</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 pt-2">
+          <div>
+            <Label className="text-xs">Contact Name</Label>
+            <Input
+              value={newContactName}
+              onChange={(e) => setNewContactName(e.target.value)}
+              placeholder="Enter contact name"
+              className="h-8 text-sm mt-1"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreateAndAdd(); }}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowCreateDialog(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" className="h-7 text-xs" onClick={handleCreateAndAdd} disabled={!newContactName.trim() || isCreating}>
+              {isCreating ? "Creating…" : "Save & Select"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>);
+
 };
 
 // ── Stakeholders Section Component ──────────────────────────────────────────
-const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: ReturnType<typeof useQueryClient> }) => {
+const StakeholdersSection = ({ deal, queryClient }: {deal: Deal;queryClient: ReturnType<typeof useQueryClient>;}) => {
   const { user } = useAuth();
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [editingNote, setEditingNote] = useState<string | null>(null);
-  const [noteText, setNoteText] = useState("");
-
-  // Confirmation dialog state for remove/replace
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     stakeholder: DealStakeholder | null;
-    action: "remove" | "replace";
-    replacementContact?: Contact;
-    role?: string;
-  }>({ open: false, stakeholder: null, action: "remove" });
+  }>({ open: false, stakeholder: null });
 
   // Single contacts fetch shared across all 4 roles
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
@@ -329,11 +379,11 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
       let from = 0;
       const BATCH = 1000;
       while (true) {
-        const { data, error } = await supabase
-          .from("contacts")
-          .select("id, contact_name, company_name, position, email, phone_no, region, contact_owner, contact_source, industry, linkedin, website")
-          .order("contact_name", { ascending: true })
-          .range(from, from + BATCH - 1);
+        const { data, error } = await supabase.
+        from("contacts").
+        select("id, contact_name, company_name, position, email, phone_no, region, contact_owner, contact_source, industry, linkedin, website").
+        order("contact_name", { ascending: true }).
+        range(from, from + BATCH - 1);
         if (error || !data || data.length === 0) break;
         all.push(...data);
         if (data.length < BATCH) break;
@@ -348,223 +398,206 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
   const { data: stakeholders = [] } = useQuery({
     queryKey: ["deal-stakeholders", deal.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("deal_stakeholders")
-        .select("*")
-        .eq("deal_id", deal.id);
-      if (error) { console.error("Error fetching stakeholders:", error); return []; }
+      const { data, error } = await supabase.
+      from("deal_stakeholders").
+      select("*").
+      eq("deal_id", deal.id);
+      if (error) {console.error("Error fetching stakeholders:", error);return [];}
       return (data || []) as DealStakeholder[];
     },
-    enabled: !!deal.id,
+    enabled: !!deal.id
   });
 
   // Build contact name map from already-loaded contacts
   const contactNames = useMemo(() => {
     const map: Record<string, string> = {};
-    allContacts.forEach(c => { map[c.id] = c.contact_name; });
+    allContacts.forEach((c) => {map[c.id] = c.contact_name;});
     return map;
   }, [allContacts]);
 
+  const { logCreate: logStakeholderCreate, logDelete: logStakeholderDelete } = useCRUDAudit();
+
   const handleAddContact = async (role: string, contact: Contact) => {
-    const { error } = await supabase.from("deal_stakeholders").insert({
+    const insertData = {
       deal_id: deal.id,
       contact_id: contact.id,
       role,
-      created_by: user?.id,
-    });
-    if (error) { console.error("Error adding stakeholder:", error); return; }
+      created_by: user?.id
+    };
+    const { data, error } = await supabase.from("deal_stakeholders").insert(insertData).select().single();
+    if (error) {console.error("Error adding stakeholder:", error);return;}
+    await logStakeholderCreate('deal_stakeholders', data?.id || '', { ...insertData, contact_name: contact.contact_name, deal_name: deal.deal_name });
     queryClient.invalidateQueries({ queryKey: ["deal-stakeholders", deal.id] });
   };
 
   const handleRemoveContact = async (stakeholderId: string) => {
+    const stakeholder = stakeholders?.find(s => s.id === stakeholderId);
+    const contactName = stakeholder ? contactNames[stakeholder.contact_id] : undefined;
     await supabase.from("deal_stakeholders").delete().eq("id", stakeholderId);
+    await logStakeholderDelete('deal_stakeholders', stakeholderId, { ...stakeholder, contact_name: contactName, deal_name: deal.deal_name });
     queryClient.invalidateQueries({ queryKey: ["deal-stakeholders", deal.id] });
   };
 
-  const handleSaveNote = async (stakeholderId: string, note: string) => {
-    await supabase.from("deal_stakeholders").update({ note: note || null }).eq("id", stakeholderId);
-    queryClient.invalidateQueries({ queryKey: ["deal-stakeholders", deal.id] });
-    setEditingNote(null);
+  const handleCreateContact = async (name: string): Promise<Contact | null> => {
+    // Look up account name to link new contact to the deal's account
+    let companyName: string | null = null;
+    const dealAccountId = (deal as any).account_id as string | null;
+    if (dealAccountId) {
+      const { data: account } = await supabase
+        .from("accounts")
+        .select("account_name")
+        .eq("id", dealAccountId)
+        .single();
+      companyName = account?.account_name || deal.customer_name || null;
+    } else {
+      companyName = deal.customer_name || null;
+    }
+
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert({ contact_name: name, company_name: companyName, created_by: user?.id })
+      .select("id, contact_name, company_name, position, email, phone_no, region, contact_owner, contact_source, industry, linkedin, website")
+      .single();
+    if (error || !data) {
+      console.error("Error creating contact:", error);
+      return null;
+    }
+    // Log inline contact creation
+    await logStakeholderCreate('contacts', data.id, { contact_name: name, company_name: companyName, created_from: 'deal_stakeholder_picker', deal_name: deal.deal_name });
+    // Add to local contacts list
+    setAllContacts((prev) => [...prev, data as Contact].sort((a, b) => a.contact_name.localeCompare(b.contact_name)));
+    return data as Contact;
   };
 
-  // Prompt before remove - checks if note exists
   const promptRemove = (sh: DealStakeholder) => {
-    setConfirmDialog({ open: true, stakeholder: sh, action: "remove" });
-  };
-
-  // Prompt before replace - when adding to a role that already has a contact
-  const promptReplace = (existingSh: DealStakeholder, newContact: Contact, role: string) => {
-    setConfirmDialog({ open: true, stakeholder: existingSh, action: "replace", replacementContact: newContact, role });
+    setConfirmDialog({ open: true, stakeholder: sh });
   };
 
   const handleConfirmAction = async () => {
-    const { stakeholder, action, replacementContact, role } = confirmDialog;
+    const { stakeholder } = confirmDialog;
     if (!stakeholder) return;
-    
-    if (action === "remove") {
-      await handleRemoveContact(stakeholder.id);
-    } else if (action === "replace" && replacementContact && role) {
-      await handleRemoveContact(stakeholder.id);
-      await handleAddContact(role, replacementContact);
-    }
-    setConfirmDialog({ open: false, stakeholder: null, action: "remove" });
+    await handleRemoveContact(stakeholder.id);
+    setConfirmDialog({ open: false, stakeholder: null });
   };
 
   return (
     <>
-    <div className="px-3 pt-2.5 pb-2">
-      <div className="border-t border-border pt-3">
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
-          {STAKEHOLDER_ROLES.map(({ role, label }) => {
-            const roleStakeholders = stakeholders.filter(s => s.role === role);
-            const excludeIds = stakeholders.map(s => s.contact_id);
-            const hasContact = roleStakeholders.length > 0;
+    <div className="px-3 pt-1.5 pb-1">
+      <div className="bg-muted/20 border border-border/60 rounded-lg overflow-hidden">
+        {/* Section Header */}
+        <div className="flex items-center px-3 py-1.5 bg-muted/50 border-b border-border/40">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs font-semibold text-foreground">Stakeholders</span>
+          </div>
+        </div>
 
-            const getCellRef = (el: HTMLDivElement | null) => {
-              cellRefs.current[role] = el;
-            };
-            const cellRef = { get current() { return cellRefs.current[role] ?? null; } } as React.RefObject<HTMLDivElement>;
+        {/* Roles Grid */}
+        <div className="grid grid-cols-2 gap-0">
+          {STAKEHOLDER_ROLES.map(({ role, label, borderColor, nameColor }, idx) => {
+              const roleStakeholders = stakeholders.filter((s) => s.role === role);
+              // Only exclude contacts already in the SAME role (allow same contact in multiple roles)
+              const excludeIds = roleStakeholders.map((s) => s.contact_id);
 
-            return (
-              <div
-                key={role}
-                ref={getCellRef}
-                className="flex items-start min-w-0 pb-2 border-b border-border/40 last:border-b-0"
-              >
+              const getCellRef = (el: HTMLDivElement | null) => {
+                cellRefs.current[role] = el;
+              };
+              const cellRef = { get current() {return cellRefs.current[role] ?? null;} } as React.RefObject<HTMLDivElement>;
+
+              return (
+                <div
+                  key={role}
+                  ref={getCellRef}
+                  className={cn(
+                    "flex items-start min-w-0 px-2 py-1.5 border-l-[3px] transition-colors",
+                    borderColor,
+                    idx < 2 && "border-b border-border/60",
+                    idx % 2 === 0 && "border-r border-border/60"
+                  )}>
+
                 {/* Label */}
                 <span
-                  className="text-xs font-medium text-muted-foreground shrink-0 pt-0.5 leading-5 whitespace-nowrap"
-                  style={{ width: "28%" }}
-                >
+                    className="text-xs font-medium text-muted-foreground shrink-0 pt-0.5 leading-5 whitespace-nowrap"
+                    style={{ width: "28%" }}>
                   {label} :
                 </span>
 
                 {/* Contact name + inline actions */}
-                <div className="flex flex-col gap-1 min-w-0 flex-1 pl-1">
-                  {roleStakeholders.map(sh => (
-                    <div
-                      key={sh.id}
-                      className="group/row flex items-center gap-1.5 min-w-0 h-5"
-                    >
-                      {/* Contact name - plain text, no dropdown on click */}
-                      <span className="truncate text-xs font-medium leading-5 flex-1 min-w-0">
-                        {contactNames[sh.contact_id] || "…"}
-                      </span>
-
-                      {/* Info button - inline next to contact name */}
-                      <Popover
-                        open={editingNote === sh.id}
-                        onOpenChange={(open) => {
-                          if (open) { setEditingNote(sh.id); setNoteText(sh.note || ""); }
-                          else { handleSaveNote(sh.id, noteText); }
-                        }}
-                      >
-                        <PopoverTrigger asChild>
-                          <button
-                            className={cn(
-                              "flex items-center justify-center w-5 h-5 rounded transition-all shrink-0",
-                              sh.note
-                                ? "text-primary hover:bg-primary/10"
-                                : "opacity-0 group-hover/row:opacity-60 hover:!opacity-100 text-muted-foreground hover:bg-accent/80"
-                            )}
-                            title={sh.note ? "View/Edit note" : "Add note"}
-                          >
-                            <Info className="h-3 w-3" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-60 p-2.5 z-[200]" side="top" align="start" avoidCollisions={true}>
-                          <Textarea
-                            value={noteText}
-                            onChange={(e) => setNoteText(e.target.value)}
-                            placeholder="Add notes about this contact…"
-                            className="text-xs min-h-[60px] resize-none"
-                            autoFocus
-                          />
-                          <Button
-                            size="sm"
-                            className="mt-2 h-7 text-xs w-full"
-                            onClick={() => handleSaveNote(sh.id, noteText)}
-                          >
-                            Save
-                          </Button>
-                        </PopoverContent>
-                      </Popover>
-
-                      {/* Remove button - always prompts */}
-                      <button
-                        className="opacity-0 group-hover/row:opacity-60 hover:!opacity-100 transition-opacity shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => promptRemove(sh)}
-                        title="Remove"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-
-                  {/* Show add dropdown only when no contact exists for this role */}
-                  {!hasContact && (
+                <div className="flex flex-col gap-0.5 min-w-0 flex-1 pl-1">
+                  {roleStakeholders.length === 0 ?
                     <div className="h-5 flex items-center">
                       <StakeholderAddDropdown
                         contacts={allContacts}
                         excludeIds={excludeIds}
                         onAdd={(contact) => handleAddContact(role, contact)}
-                        cellRef={cellRef}
-                      />
-                    </div>
-                  )}
+                        onCreateContact={handleCreateContact}
+                        cellRef={cellRef} />
+                    </div> :
+
+                    roleStakeholders.map((sh, shIdx) =>
+                    <div
+                      key={sh.id}
+                      className="group/row flex items-center gap-1.5 min-w-0 h-5">
+
+                        <span className="truncate text-xs font-medium leading-5 flex-1 min-w-0 text-primary">
+                          {contactNames[sh.contact_id] || "…"}
+                        </span>
+
+                        {/* Remove button */}
+                        <button
+                        className="opacity-0 group-hover/row:opacity-60 hover:!opacity-100 transition-opacity shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => promptRemove(sh)}
+                        title="Remove">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+
+                        {/* Inline add button after last contact - show on hover */}
+                        {shIdx === roleStakeholders.length - 1 &&
+                      <div className="opacity-0 group-hover/row:opacity-60 hover:!opacity-100 transition-opacity">
+                        <StakeholderAddDropdown
+                          contacts={allContacts}
+                          excludeIds={excludeIds}
+                          onAdd={(contact) => handleAddContact(role, contact)}
+                          onCreateContact={handleCreateContact}
+                          cellRef={cellRef} />
+                      </div>
+                      }
+                      </div>
+                    )
+                    }
                 </div>
-              </div>
-            );
-          })}
+              </div>);
+            })}
         </div>
       </div>
     </div>
 
-    {/* Confirmation Dialog for Remove/Replace */}
+    {/* Confirmation Dialog for Remove */}
     <AlertDialog open={confirmDialog.open} onOpenChange={(open) => {
-      if (!open) setConfirmDialog({ open: false, stakeholder: null, action: "remove" });
-    }}>
+        if (!open) setConfirmDialog({ open: false, stakeholder: null });
+      }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />
-            {confirmDialog.action === "remove" ? "Remove Stakeholder" : "Replace Stakeholder"}
+            Remove Stakeholder
           </AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            <div className="space-y-3">
-              <p>
-                {confirmDialog.action === "remove"
-                  ? `Are you sure you want to remove "${contactNames[confirmDialog.stakeholder?.contact_id || ""] || "this contact"}" from this deal?`
-                  : `Are you sure you want to replace "${contactNames[confirmDialog.stakeholder?.contact_id || ""] || "this contact"}" with "${confirmDialog.replacementContact?.contact_name || ""}"?`
-                }
-              </p>
-              {confirmDialog.stakeholder?.note && (
-                <div className="rounded-md border border-border bg-muted/50 p-3">
-                  <p className="text-xs font-medium text-foreground mb-1">Existing Note:</p>
-                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">{confirmDialog.stakeholder.note}</p>
-                </div>
-              )}
-              {confirmDialog.stakeholder?.note && (
-                <p className="text-xs text-destructive font-medium">
-                  ⚠ The note for this contact will be permanently removed.
-                </p>
-              )}
-            </div>
+          <AlertDialogDescription>
+            Are you sure you want to remove "{contactNames[confirmDialog.stakeholder?.contact_id || ""] || "this contact"}" from this deal?
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={handleConfirmAction}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {confirmDialog.action === "remove" ? "Remove" : "Replace"}
+              onClick={handleConfirmAction}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            Remove
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-    </>
-  );
+    </>);
+
 };
 
 export const DealExpandedPanel = ({
@@ -612,6 +645,7 @@ export const DealExpandedPanel = ({
   const actionItemsScrollRef = useRef<HTMLDivElement>(null);
 
   const { users, getUserDisplayName } = useAllUsers();
+  const { logCreate, logUpdate, logDelete } = useCRUDAudit();
 
   // Fetch audit logs for the deal - ascending order (newest at bottom)
   const { data: auditLogs = [], isLoading: logsLoading } = useQuery({
@@ -733,12 +767,11 @@ export const DealExpandedPanel = ({
 
     setIsSavingLog(true);
     try {
-      const { error } = await supabase.from("security_audit_log").insert({
-        action: logType.toUpperCase(),
-        resource_type: "deals",
-        resource_id: deal.id,
-        user_id: user.id,
-        details: {
+      const { error } = await supabase.rpc('log_security_event', {
+        p_action: logType.toUpperCase(),
+        p_resource_type: 'deals',
+        p_resource_id: deal.id,
+        p_details: {
           message: logMessage.trim(),
           log_type: logType,
           manual_entry: true
@@ -765,7 +798,7 @@ export const DealExpandedPanel = ({
 
     setIsSavingLog(true);
     try {
-      const { error } = await supabase.from("action_items").insert({
+      const { data: insertedItem, error } = await supabase.from("action_items").insert({
         title: actionTitle.trim(),
         module_type: "deals",
         module_id: deal.id,
@@ -774,9 +807,21 @@ export const DealExpandedPanel = ({
         due_date: actionDueDate || null,
         priority: actionPriority,
         status: actionStatus
-      });
+      }).select('id').single();
 
       if (error) throw error;
+
+      // Log the action item creation with actual ID
+      await logCreate('action_items', insertedItem?.id || '', {
+        title: actionTitle.trim(),
+        module_type: 'deals',
+        module_id: deal.id,
+        deal_name: deal.deal_name,
+        assigned_to: actionAssignedTo === "unassigned" ? null : actionAssignedTo,
+        due_date: actionDueDate || null,
+        priority: actionPriority,
+        status: actionStatus
+      });
 
       queryClient.invalidateQueries({ queryKey: ["deal-action-items-unified", deal.id] });
 
@@ -952,26 +997,13 @@ export const DealExpandedPanel = ({
 
   const handleStatusChange = async (id: string, status: string) => {
     const item = actionItems.find((i) => i.id === id);
+    const oldStatus = item?.status;
     await supabase.from("action_items").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
 
-    // Only log to history when completed or cancelled
+    // Log ALL status changes via useCRUDAudit
+    await logUpdate('action_items', id, { status }, { status: oldStatus, title: item?.title, deal_name: deal.deal_name });
+
     if (status === "Completed" || status === "Cancelled") {
-      try {
-        await supabase.from("security_audit_log").insert({
-          action: "update",
-          resource_type: "deals",
-          resource_id: deal.id,
-          user_id: user?.id,
-          details: {
-            message: `${item?.title} → ${status}`,
-            field_changes: { status: { old: item?.status, new: status } },
-            action_item_id: id,
-            action_item_title: item?.title
-          }
-        });
-      } catch (e) {
-        console.error("Failed to log status change:", e);
-      }
       queryClient.invalidateQueries({ queryKey: ["deal-audit-logs", deal.id] });
     }
 
@@ -979,20 +1011,25 @@ export const DealExpandedPanel = ({
   };
 
   const handleAssignedToChange = async (id: string, userId: string | null) => {
-    await supabase.
-    from("action_items").
-    update({ assigned_to: userId, updated_at: new Date().toISOString() }).
-    eq("id", id);
+    const item = actionItems.find((i) => i.id === id);
+    const oldAssignedTo = item?.assigned_to;
+    await supabase.from("action_items").update({ assigned_to: userId, updated_at: new Date().toISOString() }).eq("id", id);
+    await logUpdate('action_items', id, { assigned_to: userId }, { assigned_to: oldAssignedTo, title: item?.title, deal_name: deal.deal_name });
     invalidateActionItems();
   };
 
   const handleDueDateChange = async (id: string, date: string | null) => {
+    const item = actionItems.find((i) => i.id === id);
+    const oldDueDate = item?.due_date;
     await supabase.from("action_items").update({ due_date: date, updated_at: new Date().toISOString() }).eq("id", id);
+    await logUpdate('action_items', id, { due_date: date }, { due_date: oldDueDate, title: item?.title, deal_name: deal.deal_name });
     invalidateActionItems();
   };
 
   const handleDeleteActionItem = async (id: string) => {
+    const item = actionItems.find((i) => i.id === id);
     await supabase.from("action_items").delete().eq("id", id);
+    await logDelete('action_items', id, { ...item, deal_name: deal.deal_name });
     invalidateActionItems();
   };
 
@@ -1016,312 +1053,318 @@ export const DealExpandedPanel = ({
         {/* Content */}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-1">
           {/* Stakeholders Section */}
-          <StakeholdersSection deal={deal} queryClient={queryClient} />
+          <div className="shrink-0 max-h-[40%] overflow-y-auto">
+            <StakeholdersSection deal={deal} queryClient={queryClient} />
+          </div>
 
           {/* History Section */}
-          <div className="flex flex-col flex-1 min-h-0 relative">
-            <div className="h-[220px] overflow-y-auto relative" ref={historyScrollRef}>
-              {isLoading ?
-              <div className="flex items-center justify-center py-6">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
-                </div> :
+          <div className="px-3 pt-1 pb-0.5 flex flex-col flex-1 min-h-0">
+            <div className="bg-muted/20 border border-border/60 rounded-lg overflow-hidden flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto" ref={historyScrollRef}>
+                {isLoading ?
+                <div className="flex items-center justify-center py-6">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+                  </div> :
 
-              <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-card">
-                    <TableRow className="text-[11px] bg-muted/50">
-                      <TableHead className="h-7 px-1" style={{ width: "3%" }}></TableHead>
-                      <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "74%" }}>
-                        Updates
-                      </TableHead>
-                      <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "10%" }}>
-                        By
-                      </TableHead>
-                      <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "10%" }}>
-                        Time
-                      </TableHead>
-                      <TableHead className="h-7 px-1" style={{ width: "3%" }}></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {mergedHistory.length === 0 ?
-                  <TableRow>
-                        <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">
-                          <div className="flex items-center justify-center">
-                            <History className="h-4 w-4 mr-2" />
-                            <span className="text-xs">No history yet</span>
-                          </div>
-                        </TableCell>
-                      </TableRow> :
-
-                  mergedHistory.map((entry, index) =>
-                  <TableRow key={entry.id} className="text-xs group cursor-pointer hover:bg-muted/30">
-                          <TableCell className="py-1.5 px-1 text-[11px] text-muted-foreground text-center">
-                            {index + 1}
+                <Table>
+                    <TableHeader className="sticky top-0 z-10">
+                      <TableRow className="text-[11px] bg-muted/50">
+                        <TableHead className="h-7 px-1" style={{ width: "3%" }}></TableHead>
+                        <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "74%" }}>
+                          Updates
+                        </TableHead>
+                        <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "10%" }}>
+                          By
+                        </TableHead>
+                        <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "10%" }}>
+                          Time
+                        </TableHead>
+                        <TableHead className="h-7 px-1" style={{ width: "3%" }}></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {mergedHistory.length === 0 ?
+                    <TableRow>
+                          <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">
+                            <div className="flex items-center justify-center">
+                              <History className="h-4 w-4 mr-2" />
+                              <span className="text-xs">No history yet</span>
+                            </div>
                           </TableCell>
-                          <TableCell className="py-1.5 px-2">
-                            {entry.originalLog ?
-                      <button
-                        onClick={() => setDetailLogId(entry.originalLog!.id)}
-                        className="hover:underline text-left whitespace-normal break-words text-[#2e538e] font-normal text-sm">
+                        </TableRow> :
 
-                                {entry.message}
-                              </button> :
+                    mergedHistory.map((entry, index) =>
+                    <TableRow key={entry.id} className="text-xs group cursor-pointer hover:bg-muted/30">
+                            <TableCell className="py-1.5 px-1 text-[11px] text-muted-foreground text-center">
+                              {index + 1}
+                            </TableCell>
+                            <TableCell className="py-1.5 px-2">
+                              {entry.originalLog ?
+                        <button
+                          onClick={() => setDetailLogId(entry.originalLog!.id)}
+                          className="hover:underline text-left whitespace-normal break-words text-primary font-normal text-sm">
 
-                      <span className="text-left whitespace-normal break-words text-xs text-muted-foreground">
-                                {entry.message}
-                              </span>
-                      }
-                          </TableCell>
-                          <TableCell className="py-1.5 px-2 text-muted-foreground whitespace-nowrap text-[11px]">
-                            {entry.user_id ?
-                      displayNames[entry.user_id] || getUserDisplayName(entry.user_id) || "..." :
-                      "-"}
-                          </TableCell>
-                          <TableCell className="py-1.5 px-2 text-[11px] text-muted-foreground whitespace-nowrap w-24">
-                            {formatHistoryDateTime(new Date(entry.created_at))}
-                          </TableCell>
-                          <TableCell onClick={(e) => e.stopPropagation()} className="py-1.5 px-1 w-8">
-                            {entry.originalLog &&
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => setDetailLogId(entry.originalLog!.id)}>
+                                  {entry.message}
+                                </button> :
 
-                                <Eye className="h-3 w-3" />
-                              </Button>
-                      }
-                          </TableCell>
-                        </TableRow>
-                  )
-                  }
-                  </TableBody>
-                </Table>
-              }
-            </div>
-            <div className="flex justify-end px-2 py-1">
-              <button
-                onClick={() => {
-                  setAddDetailType("log");
-                  setAddDetailFromSection("log");
-                  setAddDetailOpen(true);
-                }}
-                className="h-7 w-7 rounded-full bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:bg-primary/90 transition-colors">
+                        <span className="text-left whitespace-normal break-words text-xs text-muted-foreground">
+                                  {entry.message}
+                                </span>
+                        }
+                            </TableCell>
+                            <TableCell className="py-1.5 px-2 text-muted-foreground whitespace-nowrap text-[11px]">
+                              {entry.user_id ?
+                        displayNames[entry.user_id] || getUserDisplayName(entry.user_id) || "..." :
+                        "-"}
+                            </TableCell>
+                            <TableCell className="py-1.5 px-2 text-[11px] text-muted-foreground whitespace-nowrap w-24">
+                              {formatHistoryDateTime(new Date(entry.created_at))}
+                            </TableCell>
+                            <TableCell onClick={(e) => e.stopPropagation()} className="py-1.5 px-1 w-8">
+                              {entry.originalLog &&
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => setDetailLogId(entry.originalLog!.id)}>
 
-                <Plus className="h-4 w-4" />
-              </button>
+                                  <Eye className="h-3 w-3" />
+                                </Button>
+                        }
+                            </TableCell>
+                          </TableRow>
+                    )
+                    }
+                    </TableBody>
+                  </Table>
+                }
+              </div>
+              <div className="flex justify-end px-2 py-1 border-t border-border/40">
+                <button
+                  onClick={() => {
+                    setAddDetailType("log");
+                    setAddDetailFromSection("log");
+                    setAddDetailOpen(true);
+                  }}
+                  className="h-7 w-7 rounded-full bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:bg-primary/90 transition-colors">
+
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Action Items Section - relative for floating button */}
-          <div className="flex flex-col flex-1 min-h-0">
-            <div className="h-[220px] overflow-y-auto relative" ref={actionItemsScrollRef}>
-              {isLoading ?
-              <div className="flex items-center justify-center py-6">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
-                </div> :
+          {/* Action Items Section */}
+          <div className="px-3 pt-0.5 pb-1 flex flex-col flex-1 min-h-0">
+            <div className="bg-muted/20 border border-border/60 rounded-lg overflow-hidden flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto" ref={actionItemsScrollRef}>
+                {isLoading ?
+                <div className="flex items-center justify-center py-6">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+                  </div> :
 
-              <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-card">
-                    <TableRow className="text-[11px] bg-muted/50">
-                      <TableHead className="h-7 px-1" style={{ width: "3%" }}></TableHead>
-                      <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "70%" }}>
-                        Action Items
-                      </TableHead>
-                      <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "9%" }}>
-                        Assigned
-                      </TableHead>
-                      <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "8%" }}>
-                        Due
-                      </TableHead>
-                      <TableHead className="h-7 px-1 text-[11px] font-bold text-center" style={{ width: "7%" }}>
-                        Status
-                      </TableHead>
-                      <TableHead className="h-7 px-1" style={{ width: "3%" }}></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {activeActionItems.length === 0 ?
-                  <TableRow>
-                        <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
-                          <div className="flex flex-col items-center justify-center">
-                            <ListTodo className="h-4 w-4 mb-1" />
-                            <span className="text-xs">No active action items</span>
-                          </div>
-                        </TableCell>
-                      </TableRow> :
-
-                  activeActionItems.map((item, index) =>
-                  <TableRow
-                    key={item.id}
-                    className="text-xs group cursor-pointer hover:bg-muted/30"
-                    onClick={() => handleActionItemClick(item)}>
-
-                          <TableCell className="py-1.5 px-1 text-[11px] text-muted-foreground text-center">
-                            {index + 1}
-                          </TableCell>
-
-                          {/* Action Item */}
-                          <TableCell className="py-1.5 px-2">
-                            <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleActionItemClick(item);
-                        }}
-                        className="hover:underline text-left whitespace-normal break-words text-[#2e538e] font-normal text-sm">
-
-                              {item.title}
-                            </button>
-                          </TableCell>
-
-                          {/* Assigned To */}
-                          <TableCell onClick={(e) => e.stopPropagation()} className="py-1.5 px-2 text-xs">
-                            <Select
-                        value={item.assigned_to || "unassigned"}
-                        onValueChange={(value) =>
-                        handleAssignedToChange(item.id, value === "unassigned" ? null : value)
-                        }>
-
-                              <SelectTrigger className="h-6 w-auto min-w-0 text-[11px] border-0 bg-transparent hover:bg-muted/50 px-0 [&>svg]:hidden">
-                                <SelectValue>
-                                  <span className="truncate">
-                                    {item.assigned_to ? getUserDisplayName(item.assigned_to) : "Unassigned"}
-                                  </span>
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="unassigned">Unassigned</SelectItem>
-                                {users.map((u) =>
-                          <SelectItem key={u.id} value={u.id}>
-                                    {u.display_name}
-                                  </SelectItem>
-                          )}
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-
-                          {/* Due Date */}
-                          <TableCell
-                      onClick={(e) => e.stopPropagation()}
-                      className="py-1.5 px-2 text-xs whitespace-nowrap">
-
-                            {editingDateId === item.id ?
-                      <Input
-                        type="date"
-                        defaultValue={item.due_date || ""}
-                        onBlur={(e) => handleDueDateBlur(item.id, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter")
-                          handleDueDateBlur(item.id, (e.target as HTMLInputElement).value);else
-                          if (e.key === "Escape") setEditingDateId(null);
-                        }}
-                        autoFocus
-                        className="h-6 w-[110px] text-[11px]" /> :
-
-
-                      <button onClick={() => setEditingDateId(item.id)} className="hover:underline text-[11px]">
-                                {item.due_date ? format(new Date(item.due_date), "dd-MM-yy") : "—"}
-                              </button>
-                      }
-                          </TableCell>
-
-                          {/* Status - dot only */}
-                          <TableCell onClick={(e) => e.stopPropagation()} className="py-1.5 px-1 text-center">
-                            <TooltipProvider delayDuration={200}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="flex justify-center">
-                                    <Select
-                                value={item.status}
-                                onValueChange={(value) => handleStatusChange(item.id, value)}>
-
-                                      <SelectTrigger className="h-6 w-6 min-w-0 border-0 bg-transparent hover:bg-muted/50 px-0 justify-center [&>svg]:hidden">
-                                        <span
-                                    className={cn(
-                                      "w-2 h-2 rounded-full flex-shrink-0",
-                                      statusDotColor[item.status] || "bg-muted-foreground"
-                                    )} />
-
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="Open">
-                                          <div className="flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-blue-500" />
-                                            Open
-                                          </div>
-                                        </SelectItem>
-                                        <SelectItem value="In Progress">
-                                          <div className="flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-yellow-500" />
-                                            In Progress
-                                          </div>
-                                        </SelectItem>
-                                        <SelectItem value="Completed">
-                                          <div className="flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-green-500" />
-                                            Completed
-                                          </div>
-                                        </SelectItem>
-                                        <SelectItem value="Cancelled">
-                                          <div className="flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-muted-foreground" />
-                                            Cancelled
-                                          </div>
-                                        </SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">{item.status}</TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </TableCell>
-
-                          {/* Actions */}
-                          <TableCell onClick={(e) => e.stopPropagation()} className="py-1.5 px-1">
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex justify-center">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6 p-0">
-                                    <MoreHorizontal className="h-3.5 w-3.5" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => handleActionItemClick(item)}>Edit</DropdownMenuItem>
-                                  {item.status !== "Completed" &&
-                            <DropdownMenuItem onClick={() => handleStatusChange(item.id, "Completed")}>
-                                      Mark Complete
-                                    </DropdownMenuItem>
-                            }
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                              onClick={() => handleDeleteActionItem(item.id)}
-                              className="text-destructive focus:text-destructive">
-
-                                    Delete
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                <Table>
+                    <TableHeader className="sticky top-0 z-10">
+                      <TableRow className="text-[11px] bg-muted/50">
+                        <TableHead className="h-7 px-1" style={{ width: "3%" }}></TableHead>
+                        <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "70%" }}>
+                          Action Items
+                        </TableHead>
+                        <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "9%" }}>
+                          Assigned
+                        </TableHead>
+                        <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: "8%" }}>
+                          Due
+                        </TableHead>
+                        <TableHead className="h-7 px-1 text-[11px] font-bold text-center" style={{ width: "7%" }}>
+                          Status
+                        </TableHead>
+                        <TableHead className="h-7 px-1" style={{ width: "3%" }}></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {activeActionItems.length === 0 ?
+                    <TableRow>
+                          <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
+                            <div className="flex flex-col items-center justify-center">
+                              <ListTodo className="h-4 w-4 mb-1" />
+                              <span className="text-xs">No active action items</span>
                             </div>
                           </TableCell>
-                        </TableRow>
-                  )
-                  }
-                  </TableBody>
-                </Table>
-              }
-            </div>
-            <div className="flex justify-end px-2 py-1">
-              <button
-                onClick={() => {
-                  setAddDetailType("action_item");
-                  setAddDetailFromSection("action_item");
-                  setAddDetailOpen(true);
-                }}
-                className="h-7 w-7 rounded-full bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:bg-primary/90 transition-colors">
+                        </TableRow> :
 
-                <Plus className="h-4 w-4" />
-              </button>
+                    activeActionItems.map((item, index) =>
+                    <TableRow
+                      key={item.id}
+                      className="text-xs group cursor-pointer hover:bg-muted/30"
+                      onClick={() => handleActionItemClick(item)}>
+
+                            <TableCell className="py-1.5 px-1 text-[11px] text-muted-foreground text-center">
+                              {index + 1}
+                            </TableCell>
+
+                            {/* Action Item */}
+                            <TableCell className="py-1.5 px-2">
+                              <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleActionItemClick(item);
+                          }}
+                          className="hover:underline text-left whitespace-normal break-words text-primary font-normal text-sm">
+
+                                {item.title}
+                              </button>
+                            </TableCell>
+
+                            {/* Assigned To */}
+                            <TableCell onClick={(e) => e.stopPropagation()} className="py-1.5 px-2 text-xs">
+                              <Select
+                          value={item.assigned_to || "unassigned"}
+                          onValueChange={(value) =>
+                          handleAssignedToChange(item.id, value === "unassigned" ? null : value)
+                          }>
+
+                                <SelectTrigger className="h-6 w-auto min-w-0 text-[11px] border-0 bg-transparent hover:bg-muted/50 px-0 [&>svg]:hidden">
+                                  <SelectValue>
+                                    <span className="truncate">
+                                      {item.assigned_to ? getUserDisplayName(item.assigned_to) : "Unassigned"}
+                                    </span>
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                                  {users.map((u) =>
+                            <SelectItem key={u.id} value={u.id}>
+                                      {u.display_name}
+                                    </SelectItem>
+                            )}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+
+                            {/* Due Date */}
+                            <TableCell
+                        onClick={(e) => e.stopPropagation()}
+                        className="py-1.5 px-2 text-xs whitespace-nowrap">
+
+                              {editingDateId === item.id ?
+                        <Input
+                          type="date"
+                          defaultValue={item.due_date || ""}
+                          onBlur={(e) => handleDueDateBlur(item.id, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter")
+                            handleDueDateBlur(item.id, (e.target as HTMLInputElement).value);else
+                            if (e.key === "Escape") setEditingDateId(null);
+                          }}
+                          autoFocus
+                          className="h-6 w-[110px] text-[11px]" /> :
+
+
+                        <button onClick={() => setEditingDateId(item.id)} className="hover:underline text-[11px]">
+                                  {item.due_date ? format(new Date(item.due_date), "dd-MM-yy") : "—"}
+                                </button>
+                        }
+                            </TableCell>
+
+                            {/* Status - dot only */}
+                            <TableCell onClick={(e) => e.stopPropagation()} className="py-1.5 px-1 text-center">
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="flex justify-center">
+                                      <Select
+                                  value={item.status}
+                                  onValueChange={(value) => handleStatusChange(item.id, value)}>
+
+                                        <SelectTrigger className="h-6 w-6 min-w-0 border-0 bg-transparent hover:bg-muted/50 px-0 justify-center [&>svg]:hidden">
+                                          <span
+                                      className={cn(
+                                        "w-2 h-2 rounded-full flex-shrink-0",
+                                        statusDotColor[item.status] || "bg-muted-foreground"
+                                      )} />
+
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="Open">
+                                            <div className="flex items-center gap-2">
+                                              <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                              Open
+                                            </div>
+                                          </SelectItem>
+                                          <SelectItem value="In Progress">
+                                            <div className="flex items-center gap-2">
+                                              <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                                              In Progress
+                                            </div>
+                                          </SelectItem>
+                                          <SelectItem value="Completed">
+                                            <div className="flex items-center gap-2">
+                                              <span className="w-2 h-2 rounded-full bg-green-500" />
+                                              Completed
+                                            </div>
+                                          </SelectItem>
+                                          <SelectItem value="Cancelled">
+                                            <div className="flex items-center gap-2">
+                                              <span className="w-2 h-2 rounded-full bg-muted-foreground" />
+                                              Cancelled
+                                            </div>
+                                          </SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">{item.status}</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </TableCell>
+
+                            {/* Actions */}
+                            <TableCell onClick={(e) => e.stopPropagation()} className="py-1.5 px-1">
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex justify-center">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 p-0">
+                                      <MoreHorizontal className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleActionItemClick(item)}>Edit</DropdownMenuItem>
+                                    {item.status !== "Completed" &&
+                              <DropdownMenuItem onClick={() => handleStatusChange(item.id, "Completed")}>
+                                        Mark Complete
+                                      </DropdownMenuItem>
+                              }
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                onClick={() => handleDeleteActionItem(item.id)}
+                                className="text-destructive focus:text-destructive">
+
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                    )
+                    }
+                    </TableBody>
+                  </Table>
+                }
+              </div>
+              <div className="flex justify-end px-2 py-1 border-t border-border/40">
+                <button
+                  onClick={() => {
+                    setAddDetailType("action_item");
+                    setAddDetailFromSection("action_item");
+                    setAddDetailOpen(true);
+                  }}
+                  className="h-7 w-7 rounded-full bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:bg-primary/90 transition-colors">
+
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
