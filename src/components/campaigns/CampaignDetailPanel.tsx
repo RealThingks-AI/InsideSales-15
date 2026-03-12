@@ -119,6 +119,10 @@ export function CampaignDetailPanel({ campaign, onClose, onEdit }: Props) {
             <CampaignMaterialsTab campaignId={campaign.id} />
           </TabsContent>
 
+          <TabsContent value="tasks" className="mt-0">
+            <CampaignActionItemsTab campaignId={campaign.id} />
+          </TabsContent>
+
           <TabsContent value="analytics" className="mt-0">
             <CampaignAnalytics campaignId={campaign.id} />
           </TabsContent>

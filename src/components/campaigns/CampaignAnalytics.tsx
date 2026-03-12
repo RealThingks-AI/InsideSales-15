@@ -142,6 +142,14 @@ export function CampaignAnalytics({ campaignId }: Props) {
             <span className="font-medium text-foreground">{dealsCreated}</span>
           </div>
           <div className="flex justify-between">
+            <span className="text-muted-foreground">Deals Won</span>
+            <span className="font-medium text-foreground">{dealsWon}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Meetings Scheduled</span>
+            <span className="font-medium text-foreground">{meetingsScheduled}</span>
+          </div>
+          <div className="flex justify-between">
             <span className="text-muted-foreground">Total Communications</span>
             <span className="font-medium text-foreground">{commsData.length}</span>
           </div>
