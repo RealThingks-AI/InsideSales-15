@@ -10,6 +10,7 @@ import { CampaignEmailTemplatesTab } from './CampaignEmailTemplatesTab';
 import { CampaignPhoneScriptsTab } from './CampaignPhoneScriptsTab';
 import { CampaignMaterialsTab } from './CampaignMaterialsTab';
 import { CampaignAnalytics } from './CampaignAnalytics';
+import { CampaignActionItemsTab } from './CampaignActionItemsTab';
 import type { Campaign } from '@/types/campaign';
 import { format } from 'date-fns';
 
