@@ -77,6 +77,7 @@ export function CampaignOutreachTab({ campaignId }: Props) {
           <TableHeader>
             <TableRow>
               <TableHead>Type</TableHead>
+              <TableHead>Contact</TableHead>
               <TableHead>Subject</TableHead>
               <TableHead>Status/Outcome</TableHead>
               <TableHead>Date</TableHead>
