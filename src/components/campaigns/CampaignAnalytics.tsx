@@ -77,7 +77,7 @@ export function CampaignAnalytics({ campaignId }: Props) {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-3">
         {stats.map(s => (
           <Card key={s.label} className="border-border">
             <CardContent className="p-3">
