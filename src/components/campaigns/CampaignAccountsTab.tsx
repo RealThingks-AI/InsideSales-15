@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Plus, X, Search } from 'lucide-react';
@@ -19,6 +20,7 @@ export function CampaignAccountsTab({ campaignId }: Props) {
   const { query, addAccount, removeAccount, updateAccountStatus } = useCampaignAccounts(campaignId);
   const [addOpen, setAddOpen] = useState(false);
   const [accountSearch, setAccountSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const allAccountsQuery = useQuery({
     queryKey: ['all_accounts_for_campaign'],
@@ -34,32 +36,75 @@ export function CampaignAccountsTab({ campaignId }: Props) {
     a => !existingIds.has(a.id) && a.account_name.toLowerCase().includes(accountSearch.toLowerCase())
   );
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkAdd = async () => {
+    const ids = Array.from(selectedIds);
+    for (const accountId of ids) {
+      await addAccount.mutateAsync({ accountId });
+    }
+    setSelectedIds(new Set());
+    setAddOpen(false);
+  };
+
+  const handleSingleAdd = (accountId: string) => {
+    addAccount.mutate({ accountId });
+    setAddOpen(false);
+  };
+
   return (
     <div className="p-4">
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-medium text-foreground">Target Accounts ({query.data?.length || 0})</span>
-        <Popover open={addOpen} onOpenChange={setAddOpen}>
+        <Popover open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) { setSelectedIds(new Set()); setAccountSearch(''); } }}>
           <PopoverTrigger asChild>
-            <Button size="sm" variant="outline"><Plus className="h-3 w-3 mr-1" /> Add Account</Button>
+            <Button size="sm" variant="outline"><Plus className="h-3 w-3 mr-1" /> Add Accounts</Button>
           </PopoverTrigger>
-          <PopoverContent className="w-72 p-2" align="end">
+          <PopoverContent className="w-80 p-2" align="end">
             <div className="relative mb-2">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
               <Input placeholder="Search accounts..." value={accountSearch} onChange={e => setAccountSearch(e.target.value)} className="pl-7 h-8 text-xs" />
             </div>
-            <div className="max-h-48 overflow-y-auto space-y-0.5">
+            <div className="max-h-56 overflow-y-auto space-y-0.5">
               {availableAccounts.map(a => (
-                <button
+                <label
                   key={a.id}
-                  className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-accent truncate"
-                  onClick={() => { addAccount.mutate({ accountId: a.id }); setAddOpen(false); }}
+                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent cursor-pointer"
                 >
-                  {a.account_name}
-                  {a.industry && <span className="text-muted-foreground ml-1">· {a.industry}</span>}
-                </button>
+                  <Checkbox
+                    checked={selectedIds.has(a.id)}
+                    onCheckedChange={() => toggleSelect(a.id)}
+                    className="h-3.5 w-3.5"
+                  />
+                  <span className="truncate flex-1">
+                    {a.account_name}
+                    {a.industry && <span className="text-muted-foreground ml-1">· {a.industry}</span>}
+                  </span>
+                  <button
+                    className="text-primary text-[10px] font-medium shrink-0 hover:underline"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSingleAdd(a.id); }}
+                  >
+                    Add
+                  </button>
+                </label>
               ))}
               {!availableAccounts.length && <p className="text-xs text-muted-foreground p-2">No accounts found</p>}
             </div>
+            {selectedIds.size > 0 && (
+              <div className="flex items-center justify-between border-t border-border mt-2 pt-2 px-1">
+                <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
+                <Button size="sm" className="h-7 text-xs" onClick={handleBulkAdd} disabled={addAccount.isPending}>
+                  Add Selected
+                </Button>
+              </div>
+            )}
           </PopoverContent>
         </Popover>
       </div>
