@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
         body: payload.body,
         recipient_email: payload.recipient_email,
         recipient_name: payload.recipient_name,
-        sender_email: azureConfig.senderEmail,
+        sender_email: actualSenderEmail,
         sent_by: user.id,
         contact_id: payload.contact_id,
         account_id: payload.account_id || null,
@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
     // Send email
     const result = await sendEmailViaGraph(
       accessToken,
-      azureConfig.senderEmail,
+      actualSenderEmail,
       payload.recipient_email,
       payload.recipient_name,
       payload.subject,
