@@ -1,91 +1,67 @@
 
 
-## Fix Note Editor Bullet Point & Stakeholders Layout Issues
+## Add Email / LinkedIn / Call Subsections to Outreach Tab
 
-### Issues Found
+Currently the Outreach tab shows all communications in a single flat list/thread view. The plan adds three dedicated sub-tabs within the Outreach section, each with channel-specific UI, metrics, and actions.
 
-1. **Bullet point moves when typing**: `autoFocus` on the Textarea (line 633) places the cursor at position 0 (before `"• "`), so typing inserts text before the bullet instead of after it.
+### Design
 
-2. **Notes panel lacks proper scrollbar**: The notes summary panel (line 580-679) has a `max-h-[280px]` on the inner div but the outer wrapper has no scroll constraint, so it still pushes content.
+The existing `CampaignCommunications` component will gain an inner `Tabs` component with four tabs:
 
-3. **Stakeholders section grows unbounded**: The `StakeholdersSection` component has no max-height. When the Notes panel is open with many notes, it consumes all vertical space, squishing the Updates and Action Items sections to near-zero height.
+1. **All** — current unified list/thread view (default)
+2. **Email** — filtered to Email only, shows email-specific columns (Subject, Status, Delivery), "Send Email" and "Reply" actions
+3. **LinkedIn** — filtered to LinkedIn only, shows LinkedIn-specific columns (Connection Status, Message), "Log LinkedIn" action
+4. **Call** — filtered to Call/Phone only, shows call-specific columns (Outcome, Duration), phone script reference panel, "Log Call" action
 
-### Changes (single file: `src/components/DealExpandedPanel.tsx`)
+Each sub-tab shows a count badge (e.g., "Email (5)") and channel-specific summary stats at the top (e.g., Sent/Opened/Replied counts for Email).
 
-#### Fix 1: Bullet cursor positioning (line 628-634)
+### Changes
 
-Replace `autoFocus` on the Textarea with a `ref` callback that focuses the element AND places the cursor at the end of the text (after `"• "`):
+**File: `src/components/campaigns/CampaignCommunications.tsx`** (rewrite ~350 lines)
 
-```tsx
-<Textarea
-  value={noteText}
-  onChange={(e) => setNoteText(e.target.value)}
-  onKeyDown={handleNoteKeyDown}
-  className="min-h-[100px] text-xs resize-none"
-  ref={(el) => {
-    if (el) {
-      el.focus();
-      const len = el.value.length;
-      el.selectionStart = len;
-      el.selectionEnd = len;
-    }
-  }}
-/>
-```
+1. Add `outreachTab` state: `"all" | "email" | "linkedin" | "call"` defaulting to `"all"`
 
-#### Fix 2: Constrain Stakeholders section height
+2. Compute per-channel counts from `communications`:
+   - `emailComms` = filter by `communication_type === "Email"`
+   - `linkedinComms` = filter by `communication_type === "LinkedIn"`
+   - `callComms` = filter by `communication_type === "Call" || "Phone"`
 
-Wrap the StakeholdersSection output in a container with `max-h` and `overflow-y-auto` so it scrolls when content is large. Change the outer div (line 462) from:
+3. Add inner Tabs below the header:
+   ```
+   All (total) | Email (n) | LinkedIn (n) | Call (n)
+   ```
 
-```tsx
-<div className="px-3 pt-1.5 pb-1">
-```
+4. **All tab** — keeps existing list/thread view with all filters intact (no changes)
 
-to:
+5. **Email tab** — dedicated view:
+   - Summary stats row: Sent count, Opened count, Replied count, Bounced count
+   - Table columns: Date, Contact, Account, Subject, Status, Delivery, Owner, Actions (Reply, Task)
+   - "Send Email" button in header
+   - Filters: contact, account, owner (channel filter removed since it's implicit)
 
-```tsx
-<div className="px-3 pt-1.5 pb-1 max-h-[45%] overflow-y-auto shrink-0">
-```
+6. **LinkedIn tab** — dedicated view:
+   - Summary stats row: Connection Sent, Connected, Message Sent, Responded counts
+   - Table columns: Date, Contact, Account, LinkedIn Status, Notes, Owner, Actions (Task)
+   - "Log LinkedIn" button in header opens log modal pre-set to LinkedIn channel
 
-However, since this is not inside a flex parent that uses percentage heights well, a better approach is to change the parent layout. The parent (line 1182) is:
+7. **Call tab** — dedicated view:
+   - Summary stats row: Interested, Not Interested, Call Later, No Answer counts
+   - Table columns: Date, Contact, Account, Outcome, Notes, Owner, Actions (Task)
+   - "Log Call" button in header opens log modal pre-set to Call channel
+   - Phone script reference panel shown below table (if scripts exist)
 
-```tsx
-<div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-1">
-```
+8. **Optimization**: Extract shared table rendering into a helper function `renderCommTable(comms, columns, channelType)` to avoid duplicating table markup across tabs. Each tab passes its filtered data and column config.
 
-The fix: Make the StakeholdersSection a flex item that can shrink, and give it a max-height so it doesn't dominate. Change line 1184 from:
+9. **Optimization**: The existing `channelFilter` dropdown becomes redundant when on a specific channel tab — hide it on Email/LinkedIn/Call tabs, show only on "All" tab.
 
-```tsx
-<StakeholdersSection deal={deal} queryClient={queryClient} />
-```
+10. Move "Send Email" button to appear only on All and Email tabs. Move "+ Log" to show on all tabs but pre-select the channel when on a specific tab.
 
-to wrap it in a constrained container:
+### Technical Details
 
-```tsx
-<div className="shrink-0 max-h-[40%] overflow-y-auto">
-  <StakeholdersSection deal={deal} queryClient={queryClient} />
-</div>
-```
-
-This ensures:
-- Stakeholders section gets at most 40% of the panel height
-- When content exceeds that, a scrollbar appears
-- Updates and Action Items always get their fair share of space
-
-#### Fix 3: Ensure notes panel scrolls properly
-
-The notes summary panel (line 596) already has `max-h-[280px] overflow-y-auto`, but when inside the constrained container from Fix 2, this works correctly. No additional change needed here -- the outer scroll from Fix 2 handles it.
-
-### Summary
-
-| Change | Line(s) | Description |
-|--------|---------|-------------|
-| Replace `autoFocus` with ref callback | 628-634 | Cursor placed after bullet on open |
-| Wrap StakeholdersSection in scrollable container | 1184 | Max 40% height with scrollbar |
-
-### Technical Notes
-
-- The ref callback fires on every render, but since `el.focus()` is idempotent when already focused, this is harmless
-- The `max-h-[40%]` works because the parent has `flex-1 min-h-0` which resolves to an actual pixel height
-- Updates and Action Items sections keep their `flex-1 min-h-0` with `h-[220px]`, ensuring they share remaining space equally
+- No new files — all changes within `CampaignCommunications.tsx`
+- No database changes
+- The inner tabs use the existing `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent` components
+- Summary stat cards use small inline `div` blocks with counts, not full `Card` components, to keep it compact
+- The `logModalOpen` handler will accept an optional `defaultChannel` param so clicking "+ Log Call" on the Call tab pre-selects "Call"
+- Existing thread view only shown on "All" tab (channel-specific tabs always use list view since threading across a single channel is less useful)
 
