@@ -450,7 +450,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
                       {c.communication_type === "Email" && c.email_status && <div><span className="text-muted-foreground">Email Status:</span> {c.email_status}</div>}
                       {isCall(c.communication_type) && c.call_outcome && <div><span className="text-muted-foreground">Outcome:</span> {c.call_outcome}</div>}
                       {c.communication_type === "LinkedIn" && c.linkedin_status && <div><span className="text-muted-foreground">LinkedIn Status:</span> {c.linkedin_status}</div>}
-                      {c.delivery_status && <div><span className="text-muted-foreground">Delivery:</span> {c.delivery_status} {c.sent_via && `(via ${c.sent_via})`}</div>}
+                      {c.delivery_status && <div><span className="text-muted-foreground">Delivery:</span> {c.delivery_status === "manual" ? "Logged manually" : `${c.delivery_status}${c.sent_via && c.sent_via !== "manual" ? ` (via ${c.sent_via})` : ""}`}</div>}
                     </div>
                   </TableCell>
                 </TableRow>
