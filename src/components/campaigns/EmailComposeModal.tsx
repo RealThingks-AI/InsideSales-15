@@ -60,7 +60,11 @@ export function EmailComposeModal({ open, onOpenChange, campaignId, contacts, pr
   const { data: templates = [] } = useQuery({
     queryKey: ["campaign-email-templates", campaignId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("campaign_email_templates").select("*").eq("campaign_id", campaignId);
+      const { data, error } = await supabase
+        .from("campaign_email_templates")
+        .select("*")
+        .eq("campaign_id", campaignId)
+        .not("email_type", "in", '("LinkedIn-Connection","LinkedIn-Followup")');
       if (error) throw error;
       return data;
     },
