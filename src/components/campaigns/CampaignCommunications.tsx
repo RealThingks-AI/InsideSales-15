@@ -367,7 +367,8 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
       pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
       manual: "bg-muted text-muted-foreground",
     };
-    return <Badge className={`text-[10px] ${colors[status] || ""}`} variant="secondary">{status}</Badge>;
+    const displayLabel = status === "manual" ? "Logged" : status;
+    return <Badge className={`text-[10px] ${colors[status] || ""}`} variant="secondary">{displayLabel}</Badge>;
   };
 
   const accountOptions = campaignAccounts.map((ca: any) => ({ id: ca.account_id, name: ca.accounts?.account_name || "Unknown" }));
@@ -412,6 +413,24 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
                         <Reply className="h-3 w-3" />
                       </Button>
                     )}
+                    {!isCampaignEnded && c.communication_type === "Email" && c.contact_id && c.sent_via === "azure" && (
+                      <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5" onClick={() => {
+                        const contact = campaignContacts.find((cc: any) => cc.contact_id === c.contact_id);
+                        setLogForm({
+                          communication_type: "Email",
+                          contact_id: c.contact_id,
+                          subject: `Re: ${c.subject || ""}`,
+                          body: "",
+                          notes: "",
+                          email_status: "Replied",
+                          call_outcome: "",
+                          linkedin_status: "Connection Sent",
+                        });
+                        setLogModalOpen(true);
+                      }}>
+                        <Mail className="h-3 w-3" /> Log Reply
+                      </Button>
+                    )}
                     {!isCampaignEnded && c.contacts?.contact_name && (
                       <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5"
                         onClick={() => openTaskForContact(c.contact_id, c.contacts?.contact_name || "")}>
@@ -431,7 +450,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
                       {c.communication_type === "Email" && c.email_status && <div><span className="text-muted-foreground">Email Status:</span> {c.email_status}</div>}
                       {isCall(c.communication_type) && c.call_outcome && <div><span className="text-muted-foreground">Outcome:</span> {c.call_outcome}</div>}
                       {c.communication_type === "LinkedIn" && c.linkedin_status && <div><span className="text-muted-foreground">LinkedIn Status:</span> {c.linkedin_status}</div>}
-                      {c.delivery_status && <div><span className="text-muted-foreground">Delivery:</span> {c.delivery_status} {c.sent_via && `(via ${c.sent_via})`}</div>}
+                      {c.delivery_status && <div><span className="text-muted-foreground">Delivery:</span> {c.delivery_status === "manual" ? "Logged manually" : `${c.delivery_status}${c.sent_via && c.sent_via !== "manual" ? ` (via ${c.sent_via})` : ""}`}</div>}
                     </div>
                   </TableCell>
                 </TableRow>

@@ -68,6 +68,10 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Use logged-in user's email as sender (fall back to shared mailbox)
+    const actualSenderEmail = user.email || azureConfig.senderEmail;
+    console.log(`Sending email as: ${actualSenderEmail} (user: ${user.email}, fallback: ${azureConfig.senderEmail})`);
+
     // Get access token
     let accessToken: string;
     try {
@@ -103,7 +107,7 @@ Deno.serve(async (req) => {
         body: payload.body,
         recipient_email: payload.recipient_email,
         recipient_name: payload.recipient_name,
-        sender_email: azureConfig.senderEmail,
+        sender_email: actualSenderEmail,
         sent_by: user.id,
         contact_id: payload.contact_id,
         account_id: payload.account_id || null,
@@ -124,7 +128,7 @@ Deno.serve(async (req) => {
     // Send email
     const result = await sendEmailViaGraph(
       accessToken,
-      azureConfig.senderEmail,
+      actualSenderEmail,
       payload.recipient_email,
       payload.recipient_name,
       payload.subject,
@@ -171,7 +175,7 @@ Deno.serve(async (req) => {
       body: payload.body,
       recipient_email: payload.recipient_email,
       recipient_name: payload.recipient_name,
-      sender_email: azureConfig.senderEmail,
+      sender_email: actualSenderEmail,
       sent_by: user.id,
       contact_id: payload.contact_id,
       account_id: payload.account_id || null,
