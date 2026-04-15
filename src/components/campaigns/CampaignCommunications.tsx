@@ -367,7 +367,8 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
       pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
       manual: "bg-muted text-muted-foreground",
     };
-    return <Badge className={`text-[10px] ${colors[status] || ""}`} variant="secondary">{status}</Badge>;
+    const displayLabel = status === "manual" ? "Logged" : status;
+    return <Badge className={`text-[10px] ${colors[status] || ""}`} variant="secondary">{displayLabel}</Badge>;
   };
 
   const accountOptions = campaignAccounts.map((ca: any) => ({ id: ca.account_id, name: ca.accounts?.account_name || "Unknown" }));
