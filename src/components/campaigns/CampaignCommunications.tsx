@@ -413,6 +413,24 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
                         <Reply className="h-3 w-3" />
                       </Button>
                     )}
+                    {!isCampaignEnded && c.communication_type === "Email" && c.contact_id && c.sent_via === "azure" && (
+                      <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5" onClick={() => {
+                        const contact = campaignContacts.find((cc: any) => cc.contact_id === c.contact_id);
+                        setLogForm({
+                          communication_type: "Email",
+                          contact_id: c.contact_id,
+                          subject: `Re: ${c.subject || ""}`,
+                          body: "",
+                          notes: "",
+                          email_status: "Replied",
+                          call_outcome: "",
+                          linkedin_status: "Connection Sent",
+                        });
+                        setLogModalOpen(true);
+                      }}>
+                        <Mail className="h-3 w-3" /> Log Reply
+                      </Button>
+                    )}
                     {!isCampaignEnded && c.contacts?.contact_name && (
                       <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5"
                         onClick={() => openTaskForContact(c.contact_id, c.contacts?.contact_name || "")}>
