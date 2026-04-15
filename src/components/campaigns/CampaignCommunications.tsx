@@ -224,8 +224,19 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
 
   const handleCreateTask = async () => {
     if (!taskForm.title.trim()) { toast({ title: "Task title is required", variant: "destructive" }); return; }
+    // Enrich description with contact/account info for CampaignActionItems parsing
+    let enrichedDescription = taskForm.description || "";
+    if (taskContactId) {
+      const contact = campaignContacts.find((cc: any) => cc.contact_id === taskContactId);
+      const contactName = contact?.contacts?.contact_name || "";
+      const accountId = contact?.account_id;
+      const account = accountId ? campaignAccounts.find((ca: any) => ca.account_id === accountId) : null;
+      const accountName = account?.accounts?.account_name || "";
+      const prefix = `Contact: ${contactName}${accountName ? ` | Account: ${accountName}` : ""}`;
+      enrichedDescription = enrichedDescription ? `${prefix}\n${enrichedDescription}` : prefix;
+    }
     const { data: inserted, error } = await supabase.from("action_items").insert({
-      title: taskForm.title, description: taskForm.description || null,
+      title: taskForm.title, description: enrichedDescription || null,
       due_date: taskForm.due_date || null, priority: taskForm.priority,
       status: "Open", module_type: "campaigns", module_id: campaignId,
       created_by: user!.id, assigned_to: user!.id,
@@ -504,23 +515,12 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
   ];
 
   // --- Filters bar (shared across tabs) ---
-  const renderFilters = (showChannelFilter: boolean) => (
+  const renderFilters = () => (
     <div className="flex flex-wrap gap-2 mb-4">
       <div className="relative flex-1 min-w-[150px] max-w-xs">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
         <Input placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 h-8 text-xs" />
       </div>
-      {showChannelFilter && (
-        <Select value={channelFilter} onValueChange={setChannelFilter}>
-          <SelectTrigger className="w-[120px] h-8 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Channels</SelectItem>
-            <SelectItem value="Email">Email</SelectItem>
-            <SelectItem value="Call">Call</SelectItem>
-            <SelectItem value="LinkedIn">LinkedIn</SelectItem>
-          </SelectContent>
-        </Select>
-      )}
       {contactOptions.length > 0 && (
         <Select value={contactFilter} onValueChange={setContactFilter}>
           <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -676,7 +676,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
                   outreachTab === "email" ? "Email" : outreachTab === "linkedin" ? "LinkedIn" : outreachTab === "call" ? "Call" : "Email"
                 )}>
                   <Plus className="h-3.5 w-3.5 mr-1" />
-                  {outreachTab === "email" ? "Log Email" : outreachTab === "linkedin" ? "Log LinkedIn" : outreachTab === "call" ? "Log Call" : "Log"}
+                  {outreachTab === "email" ? "Log Email" : outreachTab === "linkedin" ? "Log LinkedIn" : outreachTab === "call" ? "Log Call" : "Log Activity"}
                 </Button>
               </div>
             )}
@@ -705,7 +705,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
 
             {/* ALL TAB */}
             <TabsContent value="all" className="mt-3">
-              {renderFilters(true)}
+              {renderFilters()}
               {viewMode === "threads" ? renderThreadView() : renderCommTable(allFiltered, allColumns, true)}
             </TabsContent>
 
@@ -717,7 +717,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
                 <StatPill label="Replied" value={emailStats.replied} color="bg-primary/5 text-primary" />
                 <StatPill label="Bounced" value={emailStats.bounced} color="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400" />
               </div>
-              {renderFilters(false)}
+              {renderFilters()}
               {renderCommTable(emailFiltered, emailColumns, false)}
             </TabsContent>
 
@@ -729,7 +729,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
                 <StatPill label="Message Sent" value={linkedinStats.messageSent} color="bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400" />
                 <StatPill label="Responded" value={linkedinStats.responded} color="bg-primary/5 text-primary" />
               </div>
-              {renderFilters(false)}
+              {renderFilters()}
               {renderCommTable(linkedinFiltered, linkedinColumns, false)}
             </TabsContent>
 
@@ -741,7 +741,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
                 <StatPill label="Call Later" value={callStats.callLater} color="bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400" />
                 <StatPill label="No Answer" value={callStats.noAnswer} color="bg-muted text-muted-foreground" />
               </div>
-              {renderFilters(false)}
+              {renderFilters()}
               {renderCommTable(callFiltered, callColumns, false)}
               {renderPhoneScripts()}
             </TabsContent>
@@ -868,6 +868,27 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><ListChecks className="h-4 w-4" /> Create Follow-up Task</DialogTitle></DialogHeader>
           <div className="grid gap-3 py-2">
+            {taskContactId && (() => {
+              const contact = campaignContacts.find((cc: any) => cc.contact_id === taskContactId);
+              const contactName = contact?.contacts?.contact_name || "Unknown";
+              const accountId = contact?.account_id;
+              const account = accountId ? campaignAccounts.find((ca: any) => ca.account_id === accountId) : null;
+              const accountName = account?.accounts?.account_name || "";
+              return (
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted">
+                    <span className="text-muted-foreground">Contact:</span>
+                    <span className="font-medium">{contactName}</span>
+                  </div>
+                  {accountName && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted">
+                      <span className="text-muted-foreground">Account:</span>
+                      <span className="font-medium">{accountName}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div className="space-y-1.5">
               <Label className="text-xs">Title *</Label>
               <Input value={taskForm.title} onChange={e => setTaskForm({ ...taskForm, title: e.target.value })} placeholder="Task title..." className="text-sm" />
