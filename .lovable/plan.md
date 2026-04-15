@@ -1,67 +1,47 @@
 
 
-## Add Email / LinkedIn / Call Subsections to Outreach Tab
+## Fix Campaign Outreach Section Issues
 
-Currently the Outreach tab shows all communications in a single flat list/thread view. The plan adds three dedicated sub-tabs within the Outreach section, each with channel-specific UI, metrics, and actions.
+### Issues Found
 
-### Design
+**1. Duplicate filters in Outreach UI**
+The "All" tab has both channel sub-tabs (All/Email/LinkedIn/Call) AND a "All Channels" dropdown filter inside `renderFilters(true)`. When on the "All" tab, the channel dropdown duplicates the tab functionality. Additionally, each channel sub-tab still shows Contact/Account/Owner filter dropdowns that look redundant alongside the tabs.
 
-The existing `CampaignCommunications` component will gain an inner `Tabs` component with four tabs:
+**2. LinkedIn templates showing in Email Compose modal**
+`EmailComposeModal` queries ALL `campaign_email_templates` for the campaign without filtering by `email_type`. Templates with `email_type = "LinkedIn-Connection"` or `"LinkedIn-Followup"` appear in the email template picker. These should be excluded since they're LinkedIn message templates, not email templates.
 
-1. **All** — current unified list/thread view (default)
-2. **Email** — filtered to Email only, shows email-specific columns (Subject, Status, Delivery), "Send Email" and "Reply" actions
-3. **LinkedIn** — filtered to LinkedIn only, shows LinkedIn-specific columns (Connection Status, Message), "Log LinkedIn" action
-4. **Call** — filtered to Call/Phone only, shows call-specific columns (Outcome, Duration), phone script reference panel, "Log Call" action
+**3. Task creation from outreach doesn't populate Contact/Account**
+The `handleCreateTask` function (line 225-238) creates an `action_item` but never sets contact or account info. It only saves `title`, `description`, `due_date`, `priority`. The `taskContactId` is tracked in state but never used in the insert. Meanwhile, `CampaignActionItems` extracts contact/account from description text via regex — but the outreach task creator doesn't write that metadata into the description either.
 
-Each sub-tab shows a count badge (e.g., "Email (5)") and channel-specific summary stats at the top (e.g., Sent/Opened/Replied counts for Email).
+**4. Additional issues found**
+- The "Create Follow-up Task" modal from outreach (lines 867-902) has no Contact or Account fields visible — user can't see or change which contact/account the task is for
+- The `openTaskForContact` function sets `taskContactId` but `handleCreateTask` ignores it entirely
+- When "Send Email" button shows on LinkedIn tab (line 670-673: shows when `outreachTab === "all" || outreachTab === "email"`), it correctly hides on LinkedIn/Call tabs, but the "+ Log" button label says "Log" on "all" tab which is vague
 
 ### Changes
 
-**File: `src/components/campaigns/CampaignCommunications.tsx`** (rewrite ~350 lines)
+#### File: `src/components/campaigns/EmailComposeModal.tsx`
+- Filter templates query to exclude LinkedIn types: add `.not('email_type', 'in', '("LinkedIn-Connection","LinkedIn-Followup")')` to the query, OR filter in JS after fetch
 
-1. Add `outreachTab` state: `"all" | "email" | "linkedin" | "call"` defaulting to `"all"`
+#### File: `src/components/campaigns/CampaignCommunications.tsx`
 
-2. Compute per-channel counts from `communications`:
-   - `emailComms` = filter by `communication_type === "Email"`
-   - `linkedinComms` = filter by `communication_type === "LinkedIn"`
-   - `callComms` = filter by `communication_type === "Call" || "Phone"`
+**Fix duplicate filters:**
+- Remove the "All Channels" dropdown from `renderFilters` when called from "All" tab — the channel tabs already serve this purpose
+- Only show `channelFilter` dropdown inside the "All" tab if viewMode is "list" and remove it from the filter bar; the tabs handle channel switching
 
-3. Add inner Tabs below the header:
-   ```
-   All (total) | Email (n) | LinkedIn (n) | Call (n)
-   ```
+**Fix task creation from outreach:**
+- In `handleCreateTask`, look up the contact name and account from `campaignContacts` using `taskContactId`
+- Write `Contact: <name> | Account: <name>` into the description (matching the format `CampaignActionItems` parses via regex)
+- Add read-only Contact and Account display fields to the "Create Follow-up Task" modal so the user can see which contact/account the task is linked to
 
-4. **All tab** — keeps existing list/thread view with all filters intact (no changes)
-
-5. **Email tab** — dedicated view:
-   - Summary stats row: Sent count, Opened count, Replied count, Bounced count
-   - Table columns: Date, Contact, Account, Subject, Status, Delivery, Owner, Actions (Reply, Task)
-   - "Send Email" button in header
-   - Filters: contact, account, owner (channel filter removed since it's implicit)
-
-6. **LinkedIn tab** — dedicated view:
-   - Summary stats row: Connection Sent, Connected, Message Sent, Responded counts
-   - Table columns: Date, Contact, Account, LinkedIn Status, Notes, Owner, Actions (Task)
-   - "Log LinkedIn" button in header opens log modal pre-set to LinkedIn channel
-
-7. **Call tab** — dedicated view:
-   - Summary stats row: Interested, Not Interested, Call Later, No Answer counts
-   - Table columns: Date, Contact, Account, Outcome, Notes, Owner, Actions (Task)
-   - "Log Call" button in header opens log modal pre-set to Call channel
-   - Phone script reference panel shown below table (if scripts exist)
-
-8. **Optimization**: Extract shared table rendering into a helper function `renderCommTable(comms, columns, channelType)` to avoid duplicating table markup across tabs. Each tab passes its filtered data and column config.
-
-9. **Optimization**: The existing `channelFilter` dropdown becomes redundant when on a specific channel tab — hide it on Email/LinkedIn/Call tabs, show only on "All" tab.
-
-10. Move "Send Email" button to appear only on All and Email tabs. Move "+ Log" to show on all tabs but pre-select the channel when on a specific tab.
+**UI cleanup:**
+- Remove the channel filter dropdown from `renderFilters` entirely — the sub-tabs already handle this
+- On "all" tab, the "+ Log" button should say "+ Log Activity" for clarity
 
 ### Technical Details
 
-- No new files — all changes within `CampaignCommunications.tsx`
-- No database changes
-- The inner tabs use the existing `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent` components
-- Summary stat cards use small inline `div` blocks with counts, not full `Card` components, to keep it compact
-- The `logModalOpen` handler will accept an optional `defaultChannel` param so clicking "+ Log Call" on the Call tab pre-selects "Call"
-- Existing thread view only shown on "All" tab (channel-specific tabs always use list view since threading across a single channel is less useful)
+1. **EmailComposeModal.tsx** (line 63): Add `.not('email_type', 'in', '("LinkedIn-Connection","LinkedIn-Followup")')` or filter in useMemo after query
+2. **CampaignCommunications.tsx** (line 507-551): Remove `showChannelFilter` parameter and the channel dropdown from `renderFilters`
+3. **CampaignCommunications.tsx** (lines 225-238): Update `handleCreateTask` to enrich description with contact/account names using `taskContactId` + `campaignContacts`/`campaignAccounts`
+4. **CampaignCommunications.tsx** (lines 867-902): Add read-only Contact and Account info display in the task modal when `taskContactId` is set
 
